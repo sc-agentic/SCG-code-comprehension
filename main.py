@@ -1,14 +1,16 @@
 import json
 import logging
 import os
-from typing import List, Dict, Any
 import time
+from typing import List
+
 import httpx
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
-from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
+
 from graph.similar_node_optimization import similar_node_fast
+from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
 from prompt import build_intent_aware_prompt, post_process_answer, analyze_user_intent
 
 logging.basicConfig(level=logging.INFO)
@@ -196,7 +198,7 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
         intent_time = time.time() - intent_start_time
         logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
         rag_start_time = time.time()
-        matches, context = similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME)
+        matches, context = await similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME)
         rag_time = time.time() - rag_start_time
         logger.info(f"RAG processing: {rag_time:.3f}s, found {len(matches)} matches")
         history_start_time = time.time()
@@ -292,6 +294,15 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
             detail=f"Error in RAG Node: {str(exc)}"
         )
 
+
+# class QuestionRequest(BaseModel):
+#     question: str
+#
+# @app.post("/ask_junie")
+# async def ask_junie(request: QuestionRequest):
+#     question = request.question
+#     answer = "HUJ"
+#     return {"question": question, "answer": answer}
 
 
 @app.get("/files", response_model=List[str])

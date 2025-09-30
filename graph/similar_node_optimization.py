@@ -1,8 +1,9 @@
 import time
 from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional, Set
-from chroma_client import get_collection
 
+from chroma_client import get_collection
+from llm_client import call_llm
 
 max_cache_size = 1000
 max_usage_results = 10
@@ -300,8 +301,75 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
         return []
 
 
+async def general_question(question, collection, top_k=20, max_neighbors=3):
+    # 1. Wybranie węzłów po kluczowych słowach
+    classification_prompt = f"""
+    Pytanie użytkownika: "{question}"
+    Twoje zadanie:
+    1. Określ, jakie typy węzłów (CLASS, METHOD, CONTROLLER, SERVICE, VARIABLE, TEST, itp.) mogą być najbardziej istotne.
+    2. Podaj 3-5 słów kluczowych, które powinny występować w nazwach lub kodzie.
+    Odpowiedz w JSON, np.:
+    {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
+    """
+    analysis = await call_llm(classification_prompt)
+    try:
+        import json
+        analysis = json.loads(analysis)
+    except:
+        analysis = {"kinds": [], "keywords": []}
 
-def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base", top_k: int = 20) -> Tuple[
+    kinds = set([k.upper() for k in analysis.get("kinds", [])])
+    keywords = [kw.lower() for kw in analysis.get("keywords", [])]
+
+    all_nodes = collection.get(limit=1000, include=["metadatas", "documents"])
+
+    candidate_nodes = []
+    for i in range(len(all_nodes["ids"])):
+        node_id = all_nodes["ids"][i]
+        metadata = all_nodes["metadatas"][i]
+        doc = all_nodes["documents"][i] or ""
+
+        kind = metadata.get("kind", "").upper()
+        label = metadata.get("label", "").lower()
+
+        if kinds and kind not in kinds:
+            continue
+        if keywords and not any(kw in label or kw in doc.lower() for kw in keywords):
+            continue
+
+        candidate_nodes.append((node_id, metadata, doc))
+
+    # 2. Przejście po fragmentach kodu wybranych węzłów i zdecydowanie czy pomoże to w odpowiedzi na pytanie
+    top_nodes = []
+    for node_id, metadata, doc in candidate_nodes[:top_k]:
+        code_snippet = doc[:300]
+        prompt = f"""
+    Pytanie użytkownika: '{question}'
+
+    Fragment kodu z węzła '{node_id}':
+    {code_snippet}
+    
+    Twoje zadanie:
+    1. Oceń, czy fragment kodu rzeczywiście zawiera elementy bezpośrednio związane z pytaniem.
+    2. Jeśli NIE zawiera – odpowiedz tylko 'nie pasuje'.
+    3. Jeśli zawiera i jesteś pewny że ten fragment kodu może w pełni odpowiedzieć na pytanie – odpowiedz 'pasuje'.
+    """
+        answer = await call_llm(prompt)
+        if "pasuje" in answer.lower():
+            top_nodes.append((0.0, {"node": node_id, "metadata": metadata, "code": doc}))
+
+            related_entities = metadata.get("related_entities", [])
+            for neighbor_id in related_entities[:max_neighbors]:
+                neighbor_result = collection.get(ids=[neighbor_id], include=["metadatas", "documents"])
+                if neighbor_result["ids"]:
+                    neighbor_metadata = neighbor_result["metadatas"][0]
+                    neighbor_code = neighbor_result["documents"][0] or ""
+                    top_nodes.append((0.0, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_code}))
+
+    return top_nodes
+
+
+async def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base", top_k: int = 20) -> Tuple[
     List[Tuple[float, Dict[str, Any]]], str]:
     start_time = time.time()
     try:
@@ -326,6 +394,14 @@ def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base"
         if not embeddings_input:
             embeddings_input = [question]
         print(f"Embedding input: {embeddings_input}")
+
+        category = enhanced_classify_question(question).get("category", "general")
+        confidence = enhanced_classify_question(question).get("confidence", 0.5)
+
+        if category == "general" or not pairs:
+            top_nodes = await general_question(question, collection, top_k, 3)
+            full_context = build_context(top_nodes, category, confidence)
+            return top_nodes, full_context or "<NO CONTEXT FOUND>"
 
         get_graph_model()
         query_embeddings = generate_embeddings_graph(embeddings_input, model_name)
@@ -486,7 +562,7 @@ def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base"
     except Exception as e:
         print(f"Fallback do oryginalnej funkcji: {e}")
         from graph.retriver import similar_node
-        return similar_node(question, model_name, top_k)
+        return await similar_node(question, model_name, "scg_embeddings", top_k)
 
 
 

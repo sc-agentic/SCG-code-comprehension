@@ -1,12 +1,14 @@
 import json
+import os
 import re
 from typing import List, Tuple, Dict, Any
+
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+
 from chroma_client import get_chroma_client, get_collection, default_collection_name
 from graph.generate_embeddings_graph import generate_embeddings_graph
-import os
-
+from llm_client import call_llm
 
 default_classifier_embeddings_path = "embeddings/classifier_example_embeddings.json"
 default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
@@ -169,11 +171,48 @@ def preprocess_question(q: str) -> str:
     return q.lower()
 
 
-def similar_node(question: str, model_name: str = default_codebert_model, collection_name: str = default_collection_name, top_k: int = default_top_k) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
+async def similar_node(question: str, model_name: str = default_codebert_model,
+                       collection_name: str = default_collection_name, top_k: int = default_top_k) -> Tuple[
+    List[Tuple[float, Dict[str, Any]]], str]:
+    category = classify_question(preprocess_question(question))
     collection = get_collection("scg_embeddings")
-    pairs = extract_key_value_pairs_simple(question)
+    all_nodes_data = collection.get(include=["documents", "metadatas"])
+    documents = all_nodes_data.get("documents")
+    metadatas = all_nodes_data.get("metadatas")
+    node_ids = [meta["node"] for meta in metadatas]
 
+    if category == "general":
+        # Pytania ogólne -> Przechodzi po węzłach i szuka które pasują do pytania po kodzie
+        print("General question")
+        matched_nodes = []
+
+        for i, doc in enumerate(documents):
+            node_id = node_ids[i]
+            code_snippet = doc[:300] if doc else ""
+
+            prompt = (
+                f"Pytanie użytkownika: '{question}'\n"
+                f"Fragment kodu z węzła '{node_id}':\n{code_snippet}\n\n"
+                "Czy ten fragment odpowiada na pytanie użytkownika? Odpowiedz 'pasuje' lub 'nie pasuje'."
+            )
+            answer = await call_llm(prompt)
+
+            if "pasuje" in answer.lower():
+                matched_nodes.append((node_id, doc))
+                break
+
+            if len(matched_nodes) >= top_k:
+                break
+
+        if not matched_nodes:
+            return [], f"Nie znaleziono węzłów pasujących do pytania '{question}'"
+
+        context = "\n\n".join([doc for _, doc in matched_nodes if doc])
+        return [], context
+
+    pairs = extract_key_value_pairs_simple(question)
     embeddings_input = []
+
     for key, value in pairs:
         embeddings_input.append(f"{key} {value}" if key else value)
 
@@ -216,7 +255,6 @@ def similar_node(question: str, model_name: str = default_codebert_model, collec
     top_nodes = unique_results[:len(embeddings_input)]
     top_k_codes = [node["code"] for _, node in top_nodes if node["code"]]
 
-    category = classify_question(preprocess_question(question))
     max_neighbors = {"general": 5, "medium": 3, "specific": 1}.get(category, 2)
 
     print(category)
