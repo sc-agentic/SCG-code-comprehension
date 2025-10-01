@@ -2,10 +2,9 @@ import json
 import logging
 import os
 import time
-from typing import List
 
 import httpx
-from fastapi import FastAPI, HTTPException, status, Query
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
@@ -303,65 +302,6 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
 #     question = request.question
 #     answer = "HUJ"
 #     return {"question": question, "answer": answer}
-
-
-@app.get("/files", response_model=List[str])
-def list_files(path: str = "") -> List[str]:
-    target_dir = os.path.abspath(os.path.join(BASE_DIR, path))
-    if not target_dir.startswith(BASE_DIR):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    try:
-        if not os.path.exists(target_dir):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Folder not found"
-            )
-        files = os.listdir(target_dir)
-        return sorted(files)
-    except PermissionError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Permission denied"
-        )
-
-
-@app.get("/file")
-def get_file(path: str = Query(..., description="Relative path to the file")) -> dict:
-    file_path = os.path.abspath(os.path.join(BASE_DIR, path))
-    if not file_path.startswith(BASE_DIR):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    if not os.path.isfile(file_path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found"
-        )
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return {
-            "content": content,
-            "file_path": path,
-            "size": len(content),
-            "timestamp": time.time()
-        }
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is not text or has unsupported encoding"
-        )
-    except Exception as e:
-        logger.error(f"Error reading file {file_path}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
-
 
 @app.on_event("startup")
 async def startup_event():

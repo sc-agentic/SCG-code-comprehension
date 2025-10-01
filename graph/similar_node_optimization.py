@@ -1,3 +1,4 @@
+import json
 import time
 from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional, Set
@@ -301,19 +302,20 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
         return []
 
 
-async def general_question(question, collection, top_k=20, max_neighbors=3):
+async def general_question(question, collection, top_k=5, max_neighbors=3, code_snippet_limit=100):
     # 1. Wybranie węzłów po kluczowych słowach
     classification_prompt = f"""
     Pytanie użytkownika: "{question}"
     Twoje zadanie:
-    1. Określ, jakie typy węzłów (CLASS, METHOD, CONTROLLER, SERVICE, VARIABLE, TEST, itp.) mogą być najbardziej istotne.
-    2. Podaj 3-5 słów kluczowych, które powinny występować w nazwach lub kodzie.
-    Odpowiedz w JSON, np.:
+    1. Określ, jakie typy węzłów (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR, VALUE) mogą być najbardziej istotne.
+    2. Podaj 3-5 słów kluczowych, które powinny występować w nazwach tych węzłów.
+    Odpowiedz tylko w postaci JSON, np.:
     {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
+    Żadnych komentarzy
     """
     analysis = await call_llm(classification_prompt)
+    print(analysis)
     try:
-        import json
         analysis = json.loads(analysis)
     except:
         analysis = {"kinds": [], "keywords": []}
@@ -321,7 +323,9 @@ async def general_question(question, collection, top_k=20, max_neighbors=3):
     kinds = set([k.upper() for k in analysis.get("kinds", [])])
     keywords = [kw.lower() for kw in analysis.get("keywords", [])]
 
-    all_nodes = collection.get(limit=1000, include=["metadatas", "documents"])
+    all_nodes = collection.get(include=["metadatas", "documents"])
+
+    print("Kinds: ", kinds, "keywords: ", keywords)
 
     candidate_nodes = []
     for i in range(len(all_nodes["ids"])):
@@ -334,37 +338,66 @@ async def general_question(question, collection, top_k=20, max_neighbors=3):
 
         if kinds and kind not in kinds:
             continue
-        if keywords and not any(kw in label or kw in doc.lower() for kw in keywords):
-            continue
 
-        candidate_nodes.append((node_id, metadata, doc))
+        score = 0
+        if not kinds or kind in kinds:
+            score += 1
+
+        score += sum(1 for kw in keywords if kw in label or kw in doc.lower())
+
+        if score == 0:
+            score = 0.1
+
+        combined_score = float(metadata.get("combined", 0.0))
+        hybrid_score = score * 1000 + combined_score
+        candidate_nodes.append((node_id, metadata, doc, hybrid_score))
+
+    # TODO: Co z pustą listą kandydatów
+
+    candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)
+
+    candidate_nodes = candidates_sorted[:top_k]
 
     # 2. Przejście po fragmentach kodu wybranych węzłów i zdecydowanie czy pomoże to w odpowiedzi na pytanie
     top_nodes = []
-    for node_id, metadata, doc in candidate_nodes[:top_k]:
-        code_snippet = doc[:300]
+    for node_id, metadata, doc, hybrid_score in candidate_nodes:
+        lines = doc.splitlines()
+        code_snippet = "\n".join(lines[:code_snippet_limit])
         prompt = f"""
-    Pytanie użytkownika: '{question}'
-
-    Fragment kodu z węzła '{node_id}':
-    {code_snippet}
+        Pytanie: '{question}'
     
-    Twoje zadanie:
-    1. Oceń, czy fragment kodu rzeczywiście zawiera elementy bezpośrednio związane z pytaniem.
-    2. Jeśli NIE zawiera – odpowiedz tylko 'nie pasuje'.
-    3. Jeśli zawiera i jesteś pewny że ten fragment kodu może w pełni odpowiedzieć na pytanie – odpowiedz 'pasuje'.
-    """
+        Fragment kodu '{node_id}':
+        {code_snippet}
+        
+        Oceń od 1 do 5 czy ten fragment kodu z wybranego węzła:
+            - 1 = kompletnie nie pasuje do pytania
+            - 5 = dokładnie odpowiada na pytanie
+        Odpowiedz tylko liczbą.
+        """
         answer = await call_llm(prompt)
-        if "pasuje" in answer.lower():
-            top_nodes.append((0.0, {"node": node_id, "metadata": metadata, "code": doc}))
+        try:
+            score = int(answer.strip())
+            if score < 1:
+                score = 1
+            elif score > 5:
+                score = 5
+        except:
+            score = 1
 
+        if score >= 4:
+            top_nodes.append((score, {"node": node_id, "metadata": metadata, "code": doc}))
+
+            #TODO Jakaś dobra deduplikacja tych kodów
             related_entities = metadata.get("related_entities", [])
             for neighbor_id in related_entities[:max_neighbors]:
                 neighbor_result = collection.get(ids=[neighbor_id], include=["metadatas", "documents"])
                 if neighbor_result["ids"]:
                     neighbor_metadata = neighbor_result["metadatas"][0]
                     neighbor_code = neighbor_result["documents"][0] or ""
-                    top_nodes.append((0.0, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_code}))
+                    top_nodes.append(
+                        (score - 1, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_code}))
+
+    top_nodes.sort(key=lambda x: x[0], reverse=True)[:top_k]
 
     return top_nodes
 
@@ -399,7 +432,7 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
         confidence = enhanced_classify_question(question).get("confidence", 0.5)
 
         if category == "general" or not pairs:
-            top_nodes = await general_question(question, collection, top_k, 3)
+            top_nodes = await general_question(question, collection, 5, 3)
             full_context = build_context(top_nodes, category, confidence)
             return top_nodes, full_context or "<NO CONTEXT FOUND>"
 
