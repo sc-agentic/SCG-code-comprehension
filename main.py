@@ -1,16 +1,18 @@
 import json
 import logging
 import os
+from typing import List, Dict
 import time
-
 import httpx
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
-
-from graph.similar_node_optimization import similar_node_fast
 from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
-from prompt import build_intent_aware_prompt, post_process_answer, analyze_user_intent
+from graph.similar_node_optimization import similar_node_fast
+from prompt import build_intent_aware_prompt, post_process_answer
+from intent_analyzer import get_intent_analyzer
+from metrics import metrics_logger
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,8 +27,6 @@ app.add_middleware(
 )
 
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-# MODEL_NAME = "deepseek-coder:6.7b"
-# MODEL_NAME = "codellama:7b-instruct"
 MODEL_NAME = "llama3.1:8b"
 NODE_EMBEDDINGS = "embeddings/node_embedding.json"
 NODE_CONTEXT_HISTORY = "embeddings/node_context_history.json"
@@ -71,12 +71,31 @@ def log_performance_metrics(metrics: PerformanceMetrics) -> None:
     )
 
 
+async def log_metrics_async(question: str, answer: str, context: str, processing_time: float, model_name: str = None, additional_data: Dict = None):
+    loop = asyncio.get_event_loop()
+
+    await loop.run_in_executor(
+        None,
+        metrics_logger.log_metrics,
+        question,
+        answer,
+        context,
+        processing_time,
+        model_name,
+        additional_data
+    )
+
+
 async def get_llm_response(prompt: str) -> str:
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
-        "stream": False
-    }
+        "stream": False,
+        "options": {
+            "temperature": 0.0,
+            "top_p": 0.9,
+            "repeat_penalty": 1.1
+        }}
     try:
         response = await client.post(OLLAMA_API_URL, json=payload)
         response.raise_for_status()
@@ -192,8 +211,17 @@ async def ask_code(file_path: str, question: str) -> SimpleRAGResponse:
 async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
     total_start_time = time.time()
     try:
+        analyzer = get_intent_analyzer()
         intent_start_time = time.time()
-        user_intent = analyze_user_intent(req.question)
+        user_intent_analysis = analyzer.enhanced_classify_question(req.question)
+        user_intent = {
+            "primary_intent": user_intent_analysis.primary_intent.value,
+            "secondary_intents": user_intent_analysis.secondary_intents,
+            "requires_examples": user_intent_analysis.requires_examples,
+            "requires_usage_info": user_intent_analysis.requires_usage_info,
+            "requires_implementation_details": user_intent_analysis.requires_implementation_details,
+            "user_expertise_level": user_intent_analysis.user_expertise_level.value
+        }
         intent_time = time.time() - intent_start_time
         logger.info(f"User intent analysis: {intent_time:.3f}s - {user_intent}")
         rag_start_time = time.time()
@@ -262,15 +290,35 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
         logger.info(f"History saved: {history_save_time:.3f}s")
         total_time = time.time() - total_start_time
 
-        from graph.retriver import enhanced_classify_question
-        analysis = enhanced_classify_question(req.question)
-        category = analysis.get("category", "general")
+        try:
+            asyncio.create_task(
+                log_metrics_async(
+                    question=req.question,
+                    answer=processed_answer,
+                    context=context,
+                    processing_time=total_time,
+                    model_name=MODEL_NAME,
+                    additional_data={
+                        "question_category": user_intent_analysis.primary_intent.value,
+                        "intent_confidence": user_intent_analysis.confidence,
+                        "context_chars": len(context),
+                        "answer_chars": len(processed_answer),
+                        "rag_time": rag_time,
+                        "llm_time": llm_time,
+                        "matches_found": len(matches)
+                    }
+                )
+            )
+            logger.info("metrics logging started")
+            logger.info("metrics logged successfully")
+        except Exception as e:
+            logger.warning(f"Failed to log metrics: {e}")
 
         response = NodeRAGResponse(
             answer=processed_answer,
             used_context=context,
             processing_time=total_time,
-            question_category=category
+            question_category=user_intent_analysis.primary_intent.value
         )
 
         metrics = PerformanceMetrics(
@@ -294,14 +342,63 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
         )
 
 
-# class QuestionRequest(BaseModel):
-#     question: str
-#
-# @app.post("/ask_junie")
-# async def ask_junie(request: QuestionRequest):
-#     question = request.question
-#     answer = "HUJ"
-#     return {"question": question, "answer": answer}
+@app.get("/files", response_model=List[str])
+def list_files(path: str = "") -> List[str]:
+    target_dir = os.path.abspath(os.path.join(BASE_DIR, path))
+    if not target_dir.startswith(BASE_DIR):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    try:
+        if not os.path.exists(target_dir):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found"
+            )
+        files = os.listdir(target_dir)
+        return sorted(files)
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permission denied"
+        )
+
+
+@app.get("/file")
+def get_file(path: str = Query(..., description="Relative path to the file")) -> dict:
+    file_path = os.path.abspath(os.path.join(BASE_DIR, path))
+    if not file_path.startswith(BASE_DIR):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    if not os.path.isfile(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {
+            "content": content,
+            "file_path": path,
+            "size": len(content),
+            "timestamp": time.time()
+        }
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not text or has unsupported encoding"
+        )
+    except Exception as e:
+        logger.error(f"Error reading file {file_path}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
 
 @app.on_event("startup")
 async def startup_event():

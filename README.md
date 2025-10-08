@@ -63,3 +63,5 @@
   ```bash
   pip install -r requirements.txt
 
+## Linki 
+https://medium.com/@med.el.harchaoui/rag-evaluation-metrics-explained-a-complete-guide-dbd7a3b571a8

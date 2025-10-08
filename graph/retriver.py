@@ -2,13 +2,10 @@ import json
 import os
 import re
 from typing import List, Tuple, Dict, Any
-
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-
 from chroma_client import get_chroma_client, get_collection, default_collection_name
 from graph.generate_embeddings_graph import generate_embeddings_graph
-from llm_client import call_llm
+from intent_analyzer import get_intent_analyzer, classify_question
 
 default_classifier_embeddings_path = "embeddings/classifier_example_embeddings.json"
 default_classifier_model = "sentence-transformers/all-MiniLM-L6-v2"
@@ -30,8 +27,14 @@ def get_classifier_model(model_name: str = None) -> SentenceTransformer:
     return SentenceTransformer(model_name)
 
 
-classifier_embeddings = load_classifier_embeddings()
-classifier_model = get_classifier_model()
+try:
+    classifier_embeddings = load_classifier_embeddings()
+    classifier_model = get_classifier_model()
+except Exception as e:
+    print(f"Error with loading classifier components: {e}")
+    classifier_embeddings = {}
+    classifier_model = None
+
 chroma_client = get_chroma_client(storage_path=default_chroma_path)
 
 
@@ -85,151 +88,31 @@ def extract_key_value_pairs_simple(question: str) -> List[Tuple[str, str]]:
     return unique_pairs
 
 
-def classify_question(question: str) -> str:
-    question_emb = classifier_model.encode([question], convert_to_tensor=False)[0]
-
-    best_score = -1
-    best_label = "general"
-
-    for label, examples in classifier_embeddings.items():
-        for emb in examples:
-            score = cosine_similarity([question_emb], [emb])[0][0]
-            if score > best_score:
-                best_score = score
-                best_label = label
-
-    return best_label
-
-
-def enhanced_classify_question(question: str) -> Dict[str, Any]:
-    basic_category = classify_question(question)
-    question_lower = question.lower()
-
-    patterns = {
-        "usage": {
-            "keywords": ["used", "called", "invoked", "where", "references"],
-            "patterns": [r'where.*used', r'how.*called', r'.*usage.*'],
-            "weight": 2.0
-        },
-        "definition": {
-            "keywords": ["what is", "describe", "explain", "define"],
-            "patterns": [r'what\s+is', r'describe.*', r'explain.*'],
-            "weight": 1.8
-        },
-        "implementation": {
-            "keywords": ["how does", "implementation", "algorithm", "logic"],
-            "patterns": [r'how\s+does.*work', r'implementation.*', r'algorithm.*'],
-            "weight": 1.6
-        },
-        "testing": {
-            "keywords": ["test", "testing", "junit", "mock", "verify"],
-            "patterns": [r'.*test.*', r'junit.*', r'mock.*'],
-            "weight": 1.5
-        },
-        "exception": {
-            "keywords": ["error", "exception", "throw", "catch", "fail"],
-            "patterns": [r'.*error.*', r'.*exception.*', r'.*fail.*'],
-            "weight": 1.4
-        }
-    }
-    scores = {}
-    for cat, config in patterns.items():
-        score = 0.0
-        for keyword in config["keywords"]:
-            if keyword in question_lower:
-                score += config["weight"]
-        for pattern in config["patterns"]:
-            if re.search(pattern, question_lower):
-                score += config["weight"] * 1.2
-        scores[cat] = score
-    if all(score == 0.0 for score in scores.values()):
-        return {
-            "category": basic_category,
-            "confidence": 0.5,
-            "scores": scores,
-            "enhanced": False
-        }
-    best_category = max(scores, key=scores.get)
-    total_score = sum(scores.values())
-    confidence = scores[best_category] / total_score if total_score > 0 else 0.5
-    return {
-        "category": best_category,
-        "confidence": min(confidence, 1.0),
-        "scores": scores,
-        "enhanced": True
-    }
-
-
 def preprocess_question(q: str) -> str:
     q = re.sub(r'\bmethod\s+\w+\b', 'method', q, flags=re.IGNORECASE)
     q = re.sub(r'\bfunction\s+\w+\b', 'function', q, flags=re.IGNORECASE)
     q = re.sub(r'\bclass\s+\w+\b', 'class', q, flags=re.IGNORECASE)
     q = re.sub(r'\bvariable\s+\w+\b', 'variable', q, flags=re.IGNORECASE)
-
     q = re.sub(r'\s+', ' ', q).strip()
-
     return q.lower()
 
 
-async def similar_node(question: str, model_name: str = default_codebert_model,
-                       collection_name: str = default_collection_name, top_k: int = default_top_k) -> Tuple[
-    List[Tuple[float, Dict[str, Any]]], str]:
-    category = classify_question(preprocess_question(question))
+def similar_node(question: str, model_name: str = default_codebert_model, collection_name: str = default_collection_name, top_k: int = default_top_k) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
     collection = get_collection("scg_embeddings")
-    all_nodes_data = collection.get(include=["documents", "metadatas"])
-    documents = all_nodes_data.get("documents")
-    metadatas = all_nodes_data.get("metadatas")
-    node_ids = [meta["node"] for meta in metadatas]
-
-    if category == "general":
-        # Pytania ogólne -> Przechodzi po węzłach i szuka które pasują do pytania po kodzie
-        print("General question")
-        matched_nodes = []
-
-        for i, doc in enumerate(documents):
-            node_id = node_ids[i]
-            code_snippet = doc[:300] if doc else ""
-
-            prompt = (
-                f"Pytanie użytkownika: '{question}'\n"
-                f"Fragment kodu z węzła '{node_id}':\n{code_snippet}\n\n"
-                "Czy ten fragment odpowiada na pytanie użytkownika? Odpowiedz 'pasuje' lub 'nie pasuje'."
-            )
-            answer = await call_llm(prompt)
-
-            if "pasuje" in answer.lower():
-                matched_nodes.append((node_id, doc))
-                break
-
-            if len(matched_nodes) >= top_k:
-                break
-
-        if not matched_nodes:
-            return [], f"Nie znaleziono węzłów pasujących do pytania '{question}'"
-
-        context = "\n\n".join([doc for _, doc in matched_nodes if doc])
-        return [], context
-
     pairs = extract_key_value_pairs_simple(question)
     embeddings_input = []
-
     for key, value in pairs:
         embeddings_input.append(f"{key} {value}" if key else value)
-
     if not embeddings_input:
         embeddings_input = [question]
-
     query_embeddings = generate_embeddings_graph(embeddings_input, model_name)
-
     results = []
     for query_emb in query_embeddings:
         try:
             query_result = collection.query(
                 query_embeddings=[query_emb.tolist()],
                 n_results=top_k,
-                include=["embeddings", "metadatas", "documents", "distances"]
-            )
-
+                include=["embeddings", "metadatas", "documents", "distances"])
             for i in range(len(query_result["ids"][0])):
                 score = 1 - query_result["distances"][0][i]
                 node_id = query_result["ids"][0][i]
@@ -251,17 +134,27 @@ async def similar_node(question: str, model_name: str = default_codebert_model,
             seen.add(node["node"])
         if len(unique_results) >= len(embeddings_input) * top_k:
             break
-
     top_nodes = unique_results[:len(embeddings_input)]
     top_k_codes = [node["code"] for _, node in top_nodes if node["code"]]
+    try:
+        analyzer = get_intent_analyzer()
+        analysis = analyzer.enhanced_classify_question(question)
+        category = analysis.primary_intent.value
+    except Exception as e:
+        print(f"Fallback to basic classification: {e}")
+        category = classify_question(preprocess_question(question))
 
     max_neighbors = {"general": 5, "medium": 3, "specific": 1}.get(category, 2)
-
-    print(category)
+    print(f"Category: {category}")
 
     all_neighbors_ids = set()
     for _, node in top_nodes:
         neighbors = node["metadata"].get("related_entities", [])
+        if isinstance(neighbors, str):
+            try:
+                neighbors = json.loads(neighbors)
+            except json.JSONDecodeError:
+                neighbors = []
         all_neighbors_ids.update(neighbors)
 
     neighbor_codes = []
@@ -289,7 +182,6 @@ async def similar_node(question: str, model_name: str = default_codebert_model,
 
     all_codes = []
     seen_codes = set()
-
     for code in top_k_codes + neighbor_codes:
         if code and code not in seen_codes and not code.startswith("<"):
             all_codes.append(code)
@@ -305,7 +197,7 @@ async def similar_node(question: str, model_name: str = default_codebert_model,
                 doc = all_nodes["documents"][i]
                 meta = all_nodes["metadatas"][i]
                 nid = all_nodes["ids"][i]
-                score = meta.get("importance", {}).get("combined", 0.0)
+                score = meta.get("importance", {}).get("combined", 0.0) if isinstance(meta.get("importance"), dict) else meta.get("combined", 0.0)
                 if doc:
                     importance_scores.append((score, nid, doc))
             sorted_by_importance = sorted(importance_scores, key=lambda x: -x[0])
@@ -314,5 +206,4 @@ async def similar_node(question: str, model_name: str = default_codebert_model,
         except Exception as e:
             print(f"Error retrieving fallback for general question: {e}")
             full_context = "<NO CONTEXT FOUND>"
-
     return top_nodes, full_context or "<NO CONTEXT FOUND>"

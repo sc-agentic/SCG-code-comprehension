@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 import time
+from dataclasses import dataclass
 
 
 class QuestionCategory(str, Enum):
@@ -23,6 +24,36 @@ class NodeKind(str, Enum):
     MODULE = "MODULE"
     IMPORT = "IMPORT"
     UNKNOWN = "UNKNOWN"
+
+
+class IntentCategory(str, Enum):
+    GENERAL = "general"
+    MEDIUM = "medium"
+    SPECIFIC = "specific"
+    USAGE = "usage"
+    DEFINITION = "definition"
+    IMPLEMENTATION = "implementation"
+    TESTING = "testing"
+    EXCEPTION = "exception"
+
+
+class ExpertiseLevel(str, Enum):
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+
+
+@dataclass
+class IntentAnalysis:
+    primary_intent: IntentCategory
+    secondary_intents: List[str]
+    confidence: float
+    scores: Dict[str, float]
+    requires_examples: bool
+    requires_usage_info: bool
+    requires_implementation_details: bool
+    user_expertise_level: ExpertiseLevel
+    enhanced: bool = True
 
 
 class PrompRequest(BaseModel):
