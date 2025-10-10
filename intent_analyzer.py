@@ -1,8 +1,10 @@
 import json
 import re
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
+
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+
 from models import IntentCategory, ExpertiseLevel, IntentAnalysis
 
 
@@ -38,6 +40,25 @@ class IntentAnalyzer:
                 "keywords": ["error", "exception", "throw", "catch", "fail", "handling"],
                 "patterns": [r'.*error.*', r'.*exception.*', r'.*fail.*', r'.*throw.*'],
                 "weight": 1.4
+            },
+            IntentCategory.TOP: {
+                "keywords": [
+                    "important classes", "main classes", "core classes", "key classes",
+                    "most connected", "biggest class", "largest class", "most lines",
+                    "central", "core", "dominant", "important modules", "useless", "not important"
+                                                                                   "najważniejsze klasy",
+                    "główne klasy", "centralne klasy", "klasy z największym kodem",
+                    "największe klasy", "najbardziej połączone klasy", "najmniej ważne klasy",
+                    "najmniej linii", "najmniej połączeń", "least", "smallest classes", "least lines",
+                    "not core", "najmniejszą", "najmniejsze", "najmniej", "min", "max"
+                ],
+                "patterns": [
+                    r'najważniejsz.*klas', r'główn.*klas', r'centraln.*klas',
+                    r'największ.*klas', r'połączon.*klas', r'klas.*największ.*kod',
+                    r'most\s+(connected|important|significant|central|biggest|dominant).*class',
+                    r'key\s+class', r'core\s+class', r'main\s+class', r'najmniejsz.*klas'
+                ],
+                "weight": 1.2
             }
         }
 

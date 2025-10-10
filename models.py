@@ -1,11 +1,13 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional, Dict, Any
-from enum import Enum
 import time
 from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional, Dict, Any
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class QuestionCategory(str, Enum):
+    TOP = "top"
     GENERAL = "general"
     MEDIUM = "medium"
     SPECIFIC = "specific"
@@ -27,6 +29,7 @@ class NodeKind(str, Enum):
 
 
 class IntentCategory(str, Enum):
+    TOP = "top"
     GENERAL = "general"
     MEDIUM = "medium"
     SPECIFIC = "specific"

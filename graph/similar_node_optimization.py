@@ -2,6 +2,7 @@ import json
 import time
 from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional, Set
+
 from chroma_client import get_collection
 from intent_analyzer import get_intent_analyzer, IntentCategory
 from llm_client import call_llm
@@ -391,29 +392,6 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
 
     all_nodes = collection.get(include=["metadatas", "documents"])
 
-    # Obsługa specyficznego pytania o najważniejsze klasy
-    if any(kw in question.lower() for kw in ["najważniejsze klasy", "core classes", "main classes"]):
-        candidate_nodes = []
-        for i, node_id in enumerate(all_nodes["ids"]):
-            meta = all_nodes["metadatas"][i]
-            if meta.get("kind", "").upper() == "CLASS":
-                centrality_score = len(meta.get("related_entities", []))
-                candidate_nodes.append((centrality_score, node_id, meta, all_nodes["documents"][i] or ""))
-        top_nodes = sorted(candidate_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-        return [(score, {"node": node_id, "metadata": meta, "code": doc})
-                for score, node_id, meta, doc in top_nodes]
-
-    if any(kw in question.lower() for kw in ["najważniejsze metody", "core methods", "main methods"]):
-        candidate_nodes = []
-        for i, node_id in enumerate(all_nodes["ids"]):
-            meta = all_nodes["metadatas"][i]
-            if meta.get("kind", "").upper() == "METHOD":
-                centrality_score = len(meta.get("related_entities", []))
-                candidate_nodes.append((centrality_score, node_id, meta, all_nodes["documents"][i] or ""))
-        top_nodes = sorted(candidate_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-        return [(score, {"node": node_id, "metadata": meta, "code": doc})
-                for score, node_id, meta, doc in top_nodes]
-
     print(f"kinds: {kinds}, keywords: {keywords}")
 
     candidate_nodes = []
@@ -524,6 +502,72 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
     return top_nodes
 
 
+def get_metric_value(node, metric):
+    if metric == "number_of_neighbors":
+        related_entities_str = node.get("related_entities", "")
+        try:
+            related_entities = json.loads(related_entities_str) if isinstance(related_entities_str,
+                                                                              str) else related_entities_str
+        except:
+            related_entities = []
+        return len(related_entities)
+    else:
+        return float(node.get(metric, 0.0))
+
+
+async def find_top_nodes(question, collection):
+    classification_prompt = f"""
+        Pytanie użytkownika: "{question}"
+        Twoje zadanie:
+        1. Określ, jakich typów węzłów (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) dotyczy pytanie.
+        2. Dopasuj klasyfikator do pytania spośród: loc (lines of code - rozmiar kodu), pagerank, eigenvector, in_degree, out_degree, combined, number_of_neighbors.
+        3. Określ ile węzłów użytkownik chce dostać.
+        4. Zdecyduj czy wybrać największe wartości (malejąco - "desc") czy najmniejsze wartości (rosnąco - "asc"). 
+               - Jeśli pytanie zawiera słowa typu "największe", "biggest", "largest", "most", "max" to ustaw "desc".
+               - Jeśli pytanie zawiera słowa typu "najmniejsze", "najmniej", "least", "smallest", "min" to ustaw "asc".
+        5. Jeśli pytanie dotyczy ogólnie "najważniejszych", "kluczowych", "głównych" lub "centralnych" elementów,
+            wybierz "CLASS" oraz "combined".
+        
+        
+        Odpowiedz wyłącznie w postaci JSON, np.:
+        {{"kinds": ["CLASS", "METHOD"], "metric": "combined", "limit": 5, "order": "asc"}}
+        Żadnych komentarzy, tylko JSON.
+        """
+
+    analysis = await call_llm(classification_prompt)
+    print(analysis)
+
+    try:
+        parsed = json.loads(analysis)
+        kinds = parsed.get("kinds", ["CLASS"])
+        metric = parsed.get("metric", "combined")
+        order = parsed.get("order", "desc")
+        limit = parsed.get("limit", 5)
+    except json.JSONDecodeError:
+        kinds = ["CLASS"]
+        metric = "combined"
+        order = "desc"
+        limit = 5
+
+    results = collection.get(include=["metadatas"])
+
+    nodes = [
+        {
+            "node": results["ids"][i],
+            "metadata": results["metadatas"][i],
+        }
+        for i in range(len(results["ids"]))
+    ]
+
+    filtered_sorted_nodes = sorted(
+        (node for node in nodes if node["metadata"].get("kind") in kinds),
+        key=lambda n: get_metric_value(n["metadata"], metric),
+        reverse=(order.lower() == "desc")
+    )
+
+    return filtered_sorted_nodes[:limit]
+
+
 async def similar_node_fast(question: str, model_name: str = "microsoft/codebert-base", top_k: int = 20) -> Tuple[
     List[Tuple[float, Dict[str, Any]]], str]:
     start_time = time.time()
@@ -559,6 +603,20 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
             "scores": analysis_result.scores,
             "enhanced": analysis_result.enhanced
         }
+
+        if analysis["category"] == "top" and analysis["confidence"] > 0.6:
+            print("Finding top classes or methods")
+            top_nodes = await find_top_nodes(question, collection)
+            context = ''
+            context = " ".join(
+                node.get("metadata", {}).get("label", "") for node in top_nodes
+            )
+            print(context)
+            end_time = time.time()
+            elapsed_ms = (end_time - start_time) * 1000
+            print(f"ukonczono w: {elapsed_ms:.1f}ms")
+            return top_nodes, context or "<NO CONTEXT FOUND>"
+
 
         print(f"Enhanced classification: {analysis}")
         if not pairs or (analysis["category"] == "general" and analysis["confidence"] > 0.6):

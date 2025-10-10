@@ -1,6 +1,7 @@
 from typing import Dict, Any
-from models import ConversationHistory
+
 from intent_analyzer import get_intent_analyzer, IntentCategory
+from models import ConversationHistory
 
 
 def build_intent_aware_prompt(question: str, context: str, intent: Dict[str, Any], conversation_history: ConversationHistory) -> str:
@@ -36,13 +37,21 @@ def build_intent_aware_prompt(question: str, context: str, intent: Dict[str, Any
             IntentCategory.TESTING: "Analyze the testing approach and test coverage based only on the test code provided.",
             IntentCategory.GENERAL: "Analyze the provided code based only on what you see.",
             IntentCategory.MEDIUM: "Analyze the provided code with moderate detail based only on what you see.",
-            IntentCategory.SPECIFIC: "Provide specific technical details about this code based only on what you see."
+            IntentCategory.SPECIFIC: "Provide specific technical details about this code based only on what you see.",
+            IntentCategory.TOP: "Start with something like: These are the most .... and just return names of classes or methods from your context in the same order as in context."
         }
         task = task_definitions.get(intent_category, "Analyze the provided code based only on what you see.")
 
     analyzer = get_intent_analyzer()
     limits = analyzer.get_context_limits(intent_category)
     max_context_chars = limits["max_context_chars"]
+
+    if intent_category == IntentCategory.TOP:
+        return "\n".join([
+            f"INSTRUCTIONS: {task}",
+            f"USER QUESTION: {question}",
+            f"CONTEXT NAMES: {context.strip() or '<NO NAMES FOUND>'}",
+        ])
 
     if len(context) > max_context_chars:
         if '##' in context:
