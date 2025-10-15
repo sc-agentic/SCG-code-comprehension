@@ -555,13 +555,16 @@ async def find_top_nodes(question, collection):
         {
             "node": results["ids"][i],
             "metadata": results["metadatas"][i],
+            "metric_value": get_metric_value(results["metadatas"][i], metric),
         }
         for i in range(len(results["ids"]))
     ]
 
+    print(nodes[0])
+
     filtered_sorted_nodes = sorted(
         (node for node in nodes if node["metadata"].get("kind") in kinds),
-        key=lambda n: get_metric_value(n["metadata"], metric),
+        key=lambda n: n["metric_value"],
         reverse=(order.lower() == "desc")
     )
 
@@ -609,7 +612,7 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
             top_nodes = await find_top_nodes(question, collection)
             context = ''
             context = " ".join(
-                node.get("metadata", {}).get("label", "") for node in top_nodes
+                f"{node.get("metadata", {}).get("label", "")} - {node.get("metric_value"):.2f}" for node in top_nodes
             )
             print(context)
             end_time = time.time()

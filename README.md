@@ -48,6 +48,28 @@
 7. **prompts.py** – post-processing odpowiedzi.
 8. **main.py** – zwraca odpowiedź użytkownikowi.
 
+### Junie
+
+1. W ustawieniach Tools>Junie>MCP Settings dodać coś takiego
+   (zmienić command i args na lokalizacje na komputerze):
+
+   {
+   "mcpServers": {
+   "junie-context": {
+   "command": "C:\\Users\\chinc\\PycharmProjects\\inzynierka\\.venv\\Scripts\\python.exe",
+   "args": [
+   "C:\\Users\\chinc\\PycharmProjects\\inzynierka\\mcpserver.py"
+   ],
+   "shell": true,
+   "captureOutput": true
+   }
+   }
+   }
+2. Junie wystartuje program mcpserver.py
+3. Pytanie układa się w sposób: /junie-context ask_junie {Reszta pytania (trzeba mu napisać żeby zapytał serwer mcp)}
+4. Na razie zwraca błąd enkapsulacji danych
+5. Nie wiem czy ma to sens bo robi to co my - przeszukuje cały projekt, ale jak mu damy kontekst to może minimalnie
+   przyśpieszy ale możemy to zrobić bez tego pośrednika
 
 ## Przykłady pytań 
 - Describe Category class

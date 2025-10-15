@@ -38,7 +38,7 @@ def build_intent_aware_prompt(question: str, context: str, intent: Dict[str, Any
             IntentCategory.GENERAL: "Analyze the provided code based only on what you see.",
             IntentCategory.MEDIUM: "Analyze the provided code with moderate detail based only on what you see.",
             IntentCategory.SPECIFIC: "Provide specific technical details about this code based only on what you see.",
-            IntentCategory.TOP: "Start with something like: These are the most .... and just return names of classes or methods from your context in the same order as in context."
+            IntentCategory.TOP: "Start with something like: These are the most .... and just return names of classes or methods with numbers attached to them from context, in the same order as in context."
         }
         task = task_definitions.get(intent_category, "Analyze the provided code based only on what you see.")
 

@@ -1,18 +1,20 @@
+import asyncio
 import json
 import logging
 import os
-from typing import List, Dict
 import time
+from typing import List, Dict
+
 import httpx
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import ValidationError
-from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
+from pydantic import ValidationError, BaseModel
+
 from graph.similar_node_optimization import similar_node_fast
-from prompt import build_intent_aware_prompt, post_process_answer
 from intent_analyzer import get_intent_analyzer
 from metrics import metrics_logger
-import asyncio
+from models import PrompRequest, SimpleRAGResponse, NodeRAGResponse, PerformanceMetrics, ConversationHistory
+from prompt import build_intent_aware_prompt, post_process_answer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -341,6 +343,42 @@ async def ask_rag_node(req: PrompRequest) -> NodeRAGResponse:
             detail=f"Error in RAG Node: {str(exc)}"
         )
 
+
+class AskRequest(BaseModel):
+    question: str
+
+
+class AskResponse(BaseModel):
+    status: str = "success"
+    context: str
+    matches: int = 0
+
+
+@app.post("/ask_junie")
+async def ask_junie(req: AskRequest):
+    logger.info(f"Received question: {req.question}")
+
+    try:
+        matches, context = await asyncio.wait_for(
+            similar_node_fast(req.question, model_name=CODEBERT_MODEL_NAME),
+            timeout=30.0
+        )
+
+        if not isinstance(context, str):
+            context = str(context)
+
+        return {
+            "status": "success",
+            "context": context,
+            "matches": len(matches) if matches else 0
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "context": f"Error: {str(e)}",
+            "matches": 0
+        }
 
 @app.get("/files", response_model=List[str])
 def list_files(path: str = "") -> List[str]:
