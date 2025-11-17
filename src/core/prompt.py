@@ -169,12 +169,10 @@ def build_prompt(question: str, context: str, intent: Dict[str, Any], conversati
         Rules:
         1) Return only names of classes or methods as they appear in the code.
         2) Keep the same order as in the context.
-        3) Number each item (e.g., 1., 2., 3.).
+        3) Number each item (e.g., 1., 2., 3.) to each item add parameter attached to them in context.
         4) Do not add explanations, summaries, or descriptions.
         5) If no names are visible, return: "<NO NAMES FOUND>".
-        6) Return only 3-7 most important classes (not all)
-        7) Skip: Test classes, Exceptions, DTOs, Configs" 
-        8) Add one short phrase explaining importance"
+        6) Skip: Test classes, Exceptions, DTOs, Configs" 
 
         """
 

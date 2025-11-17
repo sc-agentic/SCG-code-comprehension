@@ -11,9 +11,8 @@ CODEBERT_MODEL_NAME = "microsoft/codebert-base"
 METRICS = "src/logs/metrics_log.json"
 JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
 partition ="../projects/partition.js"
-test_gdf = "../projects/test.gdf"
-scg_test= '../projects/scgTest.gdf'
-ccn_test = '../projects/ccnTest.gdf'
+scg_test= 'data/graph/scgTest.gdf'
+ccn_test = 'data/graph/ccnTest.gdf'
 
 projects = "../../projects"
 ground_truth = "src/core/ground_truth.json"

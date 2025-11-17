@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional, Set
@@ -415,7 +416,7 @@ def find_usage_nodes(collection: Any, target_class_name: str, max_results: int =
         return []
 
 
-async def general_question(question, collection, top_k=5, max_neighbors=3, code_snippet_limit=500, batch_size=5):
+async def general_question(question, collection, top_k=5, max_neighbors=3, code_snippet_limit=800, batch_size=5):
     """
         Retrieves top nodes for a general question using LLM-guided coarse filtering.
 
@@ -519,18 +520,20 @@ async def general_question(question, collection, top_k=5, max_neighbors=3, code_
 
         Oceń każdy fragment kodu od 1 do 5:
         1 = nie pasuje wcale
-        3 = fragment nie pasuje, ale cały kod może pomóc
+        3 = fragment średnio pasuje, ale cały kod sądzać po fragmencie powinien pomóc
         5 = dokładnie odpowiada
 
         Zwróć JSON: [{{"id": "node_id", "score": 3}}, ...]
-        Żadnych komentarzy.
+        Żadnych komentarzy, ani wyjaśnień.
 
         Fragmenty:
         {json.dumps(code_snippets_map, indent=2)}
         """
         answer = await call_llm(prompt)
+        print(answer)
+        clean_answer = re.sub(r"```(?:json)?", "", answer).strip()
         try:
-            scores = json.loads(answer)
+            scores = json.loads(clean_answer)
         except:
             scores = []
         logger.debug(f"LLM scores: {scores}")
@@ -764,7 +767,7 @@ async def similar_node_fast(question: str, model_name: str = "microsoft/codebert
             top_nodes = await find_top_nodes(question, collection)
             context = ''
             context = " ".join(
-                f"{node.get("metadata", {}).get("label", "")} - {node.get("metric_value"):.2f}" for node in top_nodes
+                f"{node.get('metadata', {}).get('label', '')} - {node.get('metric_value'):.2f}" for node in top_nodes
             )
             logger.debug(context)
             end_time = time.time()

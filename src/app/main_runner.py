@@ -3,7 +3,7 @@ from collections import defaultdict
 from src.clients.chroma_client import get_or_create_collection
 from src.graph.load_graph import load_gdf, extract_scores
 from src.graph.generate_embeddings_graph import generate_embeddings_graph, node_to_text
-from src.core.config import CODEBERT_MODEL_NAME, default_chroma_path, default_collection_name, partition, test_gdf, scg_test, ccn_test
+from src.core.config import CODEBERT_MODEL_NAME, default_chroma_path, default_collection_name, partition, scg_test, ccn_test
 from loguru import logger
 
 def load_graph_main() -> None:
@@ -16,7 +16,7 @@ def load_graph_main() -> None:
         Returns:
             None
     """
-    load_gdf(test_gdf)
+    load_gdf(scg_test)
     extract_scores(partition)
 
 
@@ -118,5 +118,5 @@ def generate_embeddings_graph_main() -> None:
 
 
 if __name__ == '__main__':
-    load_graph_main()
+    #load_graph_main()
     generate_embeddings_graph_main()
