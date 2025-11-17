@@ -12,3 +12,4 @@ chromadb==1.0.12
 loguru==0.7.3
 networkx==3.5
 mcp==1.19.0
+posthog==5.0.0
