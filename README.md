@@ -108,5 +108,27 @@ uv sync
 ```bash
    uvicorn src.app.main:app --reload
 ```
+
+# Claude
+
+1. Pobrać z https://www.claude.com/download
+2. W settings>Developer>Edit Config
+3. Trzeba edytować plik claude_desktop_config:
+   ```json
+   {
+   "mcpServers": {
+    "junie-context": {
+      "command": "C:/Users/chinc/PycharmProjects/inzynierka1/.venv/Scripts/python.exe",
+      "args": ["C:/Users/chinc/PycharmProjects/inzynierka1/src/clients/mcpserver.py"],
+      "systemPrompt": "INSTRUKCJA DLA AGENTA CLAUDE:\n\nMasz do dyspozycji trzy funkcje MCP server:\n\n1. ask_specific_nodes(question)\n   - Do pytań o konkretne węzły, klasy lub metody.\n   - Przykłady: \"Jak zaimplementowana jest klasa LoginController?\", \"Pokaż metodę login() w klasie UserService\"\n\n2. ask_top_nodes(question)\n   - Do pytań o top/największe/najmniejsze elementy.\n   - Przykłady: \"Jakie są 5 klas z największą liczbą metod?\", \"Pokaż top 3 metody według liczby użyć\"\n\n3. ask_general_question(question)\n   - Do pytań ogólnych o architekturę, strukturę klas lub kontekst implementacyjny.\n   - Przykłady: \"Opisz implementację logowania użytkownika.\", \"Jak działa moduł uwierzytelniania w projekcie?\"\n\nZasady wywoływania funkcji:\n- Analizuj pytanie pod kątem słów kluczowych: \"klasa\", \"metoda\", \"top\", \"największy\", \"najmniejszy\", \"opis\", \"architektura\".\n- Jeśli pytanie jest ogólne → ask_general_question\n- Jeśli pytanie dotyczy konkretnego elementu kodu → ask_specific_nodes\n- Jeśli pytanie dotyczy rankingów/top wyników → ask_top_nodes\n- Nie zmieniaj treści pytania, tylko wybierz odpowiednią funkcję."
+      }
+    }
+   }
+4. W command i args ścieżki do pythona i do mcpserver.py
+5. SystemPrompt na razie prosty, potem trzeba przenieść do osobnego ReadMe i dodać coś jeszcze
+6. Jak zadaje mu się pytanie o coś to dopytuje i ciągle prosi o możliwość kolejnego zapytania do MCP
+7. Można dać w końcu deny i z tego co ma ułoży odpowiedź
+8. Pewnie trzeba to poprawić w README żeby nie dopytywał zbyt dużo w nieskończoność
+
 ## Linki 
 https://medium.com/@med.el.harchaoui/rag-evaluation-metrics-explained-a-complete-guide-dbd7a3b571a8
