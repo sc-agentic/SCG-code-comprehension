@@ -1,5 +1,8 @@
 import json
+import shutil
+import subprocess
 from collections import defaultdict
+from pathlib import Path
 
 from loguru import logger
 
@@ -16,6 +19,53 @@ from src.graph.generate_embeddings_graph import generate_embeddings_graph, node_
 from src.graph.load_graph import extract_scores, load_gdf
 
 
+def run_scg_cli(project_path: Path, output_folder: Path):
+    output_folder.mkdir(parents=True, exist_ok=True)
+    project_parent = project_path.parent
+    project_name = project_path.name
+
+    ccn_cmd = [
+        "scg-cli", "export",
+        "-g", "CCN",
+        "-o", "gdf",
+        str(project_path)
+    ]
+    logger.info(f"Running: {' '.join(ccn_cmd)}")
+    subprocess.run(ccn_cmd, check=True, cwd=project_path, shell=True)
+
+    generated_ccn_file = project_parent / f"{project_name}.gdf"
+    moved_ccn = output_folder / "ccnTest.gdf"
+    if generated_ccn_file.exists():
+        shutil.move(str(generated_ccn_file), str(moved_ccn))
+        logger.info(f"CCN graph moved to {moved_ccn}")
+    else:
+        logger.error(f"CCN graph not found at {moved_ccn}")
+
+    scg_cmd = [
+        "scg-cli", "export",
+        "-g", "SCG",
+        "-o", "gdf",
+        str(project_path)
+    ]
+    logger.info(f"Running: {' '.join(scg_cmd)}")
+    subprocess.run(scg_cmd, check=True, cwd=project_path, shell=True)
+
+    generated_scg_file = project_parent / f"{project_name}.gdf"
+    moved_scg = output_folder / "scgTest.gdf"
+    if generated_scg_file.exists():
+        shutil.move(str(generated_scg_file), str(moved_scg))
+        logger.info(f"CCN graph moved to {moved_scg}")
+    else:
+        logger.error(f"CCN graph not found at {moved_scg}")
+
+    crucial_cmd = [
+        "scg-cli", "crucial",
+        str(project_path)
+    ]
+    logger.info(f"Running: {' '.join(crucial_cmd)}")
+    subprocess.run(crucial_cmd, check=True, cwd=project_path, shell=True)
+
+
 def load_graph_main() -> None:
     """
     Loads and processes the primary test graph data.
@@ -30,7 +80,7 @@ def load_graph_main() -> None:
     extract_scores(partition)
 
 
-def generate_embeddings_graph_main() -> None:
+def generate_embeddings_graph_main(project_path: Path) -> None:
     """
     Generates graph node embeddings and stores them in a Chroma collection.
 
@@ -59,7 +109,7 @@ def generate_embeddings_graph_main() -> None:
     texts_for_embedding = []
 
     for node_id, data in scg.nodes(data=True):
-        node_text = node_to_text(data)
+        node_text = node_to_text(data, project_path)
         nodes_info.append(
             {
                 "node_id": node_id,
@@ -124,5 +174,13 @@ def generate_embeddings_graph_main() -> None:
 
 
 if __name__ == "__main__":
-    load_graph_main()
-    generate_embeddings_graph_main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate SCG embeddings for project")
+    parser.add_argument("--project", type=str, required=True, help="Path to the project folder")
+    args = parser.parse_args()
+
+    project_path = Path(args.project).resolve()
+    program_graph_folder = Path(__file__).parent.parent.parent / "data/graph"
+    # run_scg_cli(project_path, program_graph_folder)
+    generate_embeddings_graph_main(project_path)
