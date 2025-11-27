@@ -144,7 +144,6 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
 
     for info, emb in zip(nodes_info, embeddings):
         node_id = info["node_id"]
-
         scg_neighbors = set(scg.neighbors(node_id)) if scg.has_node(node_id) else set()
         used_by = set(reverse_ccn_map[node_id]) if node_id in reverse_ccn_map else set()
 

@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict
 
 import networkx as nx
+from loguru import logger
 
 
 def load_gdf(filepath: str) -> nx.DiGraph:

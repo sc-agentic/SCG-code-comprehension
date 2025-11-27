@@ -164,13 +164,10 @@ def node_to_text(data: Dict[str, Any], project_root: Path) -> Dict[str, str]:
     uri = data.get("uri", "")
     location = data.get("location", "")
 
-    logger.info(f"URI: {uri}, location: {location}")
-
     file_path = Path(uri)
     if not file_path.is_absolute():
         file_path = project_root / file_path
 
-    logger.info(f"Reading {file_path}")
     code = (
         extract_code_block_from_file(file_path, location)
         if kind in ["CLASS", "METHOD"]
