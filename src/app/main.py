@@ -510,20 +510,20 @@ class AskResponse(BaseModel):
 
 @app.post("/ask_specific_nodes")
 async def ask_specific_nodes(req: AskRequest):
-    return await build_context(req.question, get_specific_nodes_context, req.params)
+    return await retrieve_context(req.question, get_specific_nodes_context, req.params)
 
 
 @app.post("/ask_top_nodes")
 async def ask_top_nodes(req: AskRequest):
-    return await build_context(req.question, get_top_nodes_context, req.params)
+    return await retrieve_context(req.question, get_top_nodes_context, req.params)
 
 
 @app.post("/ask_general_question")
 async def ask_general_question(req: AskRequest):
-    return await build_context(req.question, get_general_nodes_context, req.params)
+    return await retrieve_context(req.question, get_general_nodes_context, req.params)
 
 
-async def build_context(question: str, node_func, params: dict):
+async def retrieve_context(question: str, node_func, params: dict):
     """
     Handles the all the endpoints for quick RAG-style context retrieval.
 
