@@ -406,23 +406,24 @@ class IntentAnalyzer:
             },
         )
 
-    def is_usage_question(self, question: str) -> bool:
-        """
-        Checks if a question likely asks about *usage*.
-
-        Args:
-            question (str): Question text.
-
-        Returns:
-            bool: True if usage-related keywords are present.
-        """
-        question_lower = question.lower()
-        return any(
-            word in question_lower for word in ["used", "where", "usage", "called", "referenced"]
-        )
-
 
 _intent_analyzer: Optional[IntentAnalyzer] = None
+
+
+def is_usage_question(question: str) -> bool:
+    """
+    Checks if a question likely asks about *usage*.
+
+    Args:
+        question (str): Question text.
+
+    Returns:
+        bool: True if usage-related keywords are present.
+    """
+    question_lower = question.lower()
+    return any(
+        word in question_lower for word in ["used", "where", "usage", "called", "referenced"]
+    )
 
 
 def get_intent_analyzer() -> IntentAnalyzer:

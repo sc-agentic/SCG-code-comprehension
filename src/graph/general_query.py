@@ -10,7 +10,7 @@ from graph.reranking import rerank_results
 from src.clients.llm_client import call_llm
 from src.graph.usage_finder import find_usage_nodes
 
-max_usage_nodes_for_context = 5
+max_usage_nodes_for_context = 3
 
 
 def _filter_candidates(
@@ -48,7 +48,7 @@ def _filter_candidates(
             score = 0.1
 
         combined_score = float(metadata.get("combined", 0.0))
-        hybrid_score = score * 1000 + combined_score
+        hybrid_score = score * 100 + combined_score
         candidate_nodes.append((node_id, metadata, doc, hybrid_score))
 
     return candidate_nodes
@@ -75,16 +75,16 @@ async def _score_batch(
     logger.info("Scoring batch")
     prompt = f"""
     Question: '{question}'
-    
+
     Rate each code fragment from 1 to 5:
     1 = not relevant at all
     3 = moderately relevant, the full code should help answer the question
     5 = directly answers the question
-    
+
     Return JSON: [{{"id": "node_id", "score": 3}}, ...]
-    
+
     No comments or explanations.
-    
+
     Code fragments:
     {json.dumps(code_snippets_map, indent=2)}
     """
@@ -227,16 +227,16 @@ async def get_general_nodes_context(
         }
         classification_prompt = f"""
         User question: "{question}"
-        
+
         Your task:
         1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) 
             are most relevant
         2. Provide 5-10 keywords that should appear in node names
-        
+
         Return ONLY valid JSON format:
         {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
-        
-        No comments, only JSON.
+
+        No comments, only JSON. Include that question can be in polish and english.
         """
         questionAnalysis = await call_llm(classification_prompt)
         logger.debug(f"LLM analysis: {questionAnalysis}")
@@ -289,7 +289,7 @@ async def get_general_nodes_context(
 
         top_nodes = sorted(top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
 
-        extended_top_nodes = top_nodes.copy()
+        final_top_nodes = top_nodes.copy()
         seen_nodes = set(n[1]["node"] for n in top_nodes)
         for score, node_data in top_nodes:
             neighbor_nodes = expand_node_with_neighbors(
@@ -297,11 +297,10 @@ async def get_general_nodes_context(
             )
             for score_offset, neighbor_data in neighbor_nodes:
                 if neighbor_data["node"] not in seen_nodes:
-                    extended_top_nodes.append((score_offset, neighbor_data))
+                    final_top_nodes.append((score_offset, neighbor_data))
                     seen_nodes.add(neighbor_data["node"])
 
-        final_top_nodes = extended_top_nodes.copy()
-        for _, node_data in extended_top_nodes:
+        for _, node_data in top_nodes:
             if node_data["metadata"].get("kind") == "CLASS":
                 class_name = node_data["metadata"].get("label")
                 usage_nodes = find_usage_nodes(

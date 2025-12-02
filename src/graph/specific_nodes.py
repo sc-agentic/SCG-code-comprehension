@@ -11,6 +11,7 @@ from graph.retrieval_utils import (
     expand_usage_results,
     expand_definition_neighbors,
 )
+from graph.retriver import extract_key_value_pairs_simple
 from graph.similar_node_optimization import get_graph_model
 
 
@@ -55,16 +56,6 @@ async def get_specific_nodes_context(
             def build_context(nodes, category, confidence, question="", target_method=None):
                 return "\n\n".join([node[1]["code"] for node in nodes[:5] if node[1]["code"]])
 
-        analyzer = get_intent_analyzer()
-        analysis_result = analyzer.enhanced_classify_question(question)
-        analysis = {
-            "category": analysis_result.primary_intent.value,
-            "confidence": analysis_result.confidence,
-            "scores": analysis_result.scores,
-            "enhanced": analysis_result.enhanced,
-        }
-        logger.debug(f"Enhanced classification: {analysis}")
-
         pairs = await extract_key_value_pairs_simple(question)
         pairs = [(t.lower(), n.lower()) for t, n in pairs]
 
@@ -82,7 +73,10 @@ async def get_specific_nodes_context(
         logger.debug(f"Reranked {len(reranked_results)} results")
         unique_results = deduplicate_results(reranked_results, len(embeddings_input) * top_k)
         target_entity = None
-        if analyzer.is_usage_question(question):
+        category = analysis.get("category", "general")
+        confidence = analysis.get("confidence", 0.5)
+
+        if category.lower() == "usage":
             logger.debug("Usage question. Searching in related_entities")
             target_entity = identify_target_entity(unique_results)
             top_nodes = expand_usage_results(unique_results, collection, target_entity)
@@ -91,9 +85,6 @@ async def get_specific_nodes_context(
                 unique_results, collection, max_neighbors, neighbor_type
             )
         logger.debug(f"Selected {len(top_nodes)} best nodes")
-
-        category = analysis.get("category", "general")
-        confidence = analysis.get("confidence", 0.5)
 
         logger.debug(
             f"Building context with category={category}, confidence={confidence},"

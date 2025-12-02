@@ -51,8 +51,8 @@ Pytanie zawiera nazwy klas, metod, funkcji, zmiennych lub konstruktorów.
 **Dobór max_neighbors:**
 
 - Proste pytanie ("Opisz klasę X") → **1-2**
-- Średnie ("Gdzie używana jest klasa X?") → **5-6**
-- Złożone ("Jakie są zależności klasy X?") → **8-10**
+- Średnie ("Gdzie używana jest klasa X?") → **3-5**
+- Złożone ("Jakie są zależności klasy X?") → **6-8**
 
 **neighbor_type:**
 
@@ -68,7 +68,7 @@ Pytanie dotyczy rankingu, top X elementów lub superlatiw (największy, najczę�
 
 **Przykłady:**
 
-- "Jakie są 5 klas z największą liczbą metod?"
+- "Jakie są 5 klas z największą liczbą kodu?"
 - "Top 3 funkcje według liczby wywołań"
 - "Opisz 5 najważniejszych klas"
 
