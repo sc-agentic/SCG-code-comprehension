@@ -1,5 +1,7 @@
 import re
 
+MAX_DEFINITION_LINES = 20
+
 
 def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     """
@@ -54,7 +56,7 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
                 signature += ";"
             definition_lines.append(signature)
 
-    return "\n".join(definition_lines[:15])
+    return "\n".join(definition_lines[:MAX_DEFINITION_LINES])
 
 
 def filter_exception_code(code: str) -> str:

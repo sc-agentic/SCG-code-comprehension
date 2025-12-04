@@ -441,7 +441,6 @@ async def retrieve_context(question: str, node_func, params: dict):
             question=question,
             context=context,
             intent=user_intent,
-            conversation_history=conversation_history,
         )
         prompt_time = time.time() - prompt_start_time
         logger.info(f"Intent-aware prompt built: {prompt_time:.3f}s, length: {len(prompt)} chars")

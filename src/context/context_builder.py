@@ -63,7 +63,7 @@ def build_context(
     except ValueError:
         intent_category = IntentCategory.GENERAL
 
-    if category in ["medium", "general"] and confidence < 0.7 and nodes:
+    if category == "general" and confidence < 0.7 and nodes:
         first_node = nodes[0][1]
         node_kind = first_node.get("metadata", {}).get("kind", "")
         if node_kind in ["CLASS", "INTERFACE"]:

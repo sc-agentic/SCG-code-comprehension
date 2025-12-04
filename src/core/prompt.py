@@ -3,7 +3,6 @@ from typing import Any, Dict
 from loguru import logger
 
 from src.core.intent_analyzer import IntentCategory, get_intent_analyzer
-from src.core.models import ConversationHistory
 
 
 def get_task_instructions(intent_category: IntentCategory) -> str:
@@ -186,9 +185,7 @@ def get_task_instructions(intent_category: IntentCategory) -> str:
         Keep the tone factual and concise, describe only what you see."""
 
 
-def build_prompt(
-    question: str, context: str, intent: Dict[str, Any], conversation_history: ConversationHistory
-) -> str:
+def build_prompt(question: str, context: str, intent: Dict[str, Any]) -> str:
     """
     Builds an intent-aware prompt from code context and conversation.
 
@@ -196,7 +193,6 @@ def build_prompt(
         question: User question
         context: Code/context to analyze (may be truncated)
         intent: Intent payload with at least "primary_intent"
-        conversation_history: Rolling chat history
 
     Returns:
         str: Fully formatted prompt string ready for the LLM
@@ -208,9 +204,6 @@ def build_prompt(
         intent_category = IntentCategory.GENERAL
 
     task = get_task_instructions(intent_category)
-    analyzer = get_intent_analyzer()
-    limits = analyzer.get_context_limits(intent_category)
-    max_context_chars = limits["max_context_chars"]
     if intent_category == IntentCategory.TOP:
         return "\n".join(
             [
@@ -219,22 +212,12 @@ def build_prompt(
                 f"CONTEXT NAMES: {context.strip() or '<NO NAMES FOUND>'}",
             ]
         )
-    context = _truncate_context(context, max_context_chars)
-    prompt_parts = [
-        f"INSTRUCTIONS: {task}",
-        "",
-        "CODE TO ANALYZE:",
-        context.strip(),
-        "",
-        f"USER QUESTION: {question}",
-        "",
-        "YOUR ANSWER (extract facts from code above):",
-    ]
-    if intent_category not in [IntentCategory.EXCEPTION, IntentCategory.TESTING]:
-        history_context = conversation_history.get_conversation_context()
-        if history_context and len(history_context) < 500:
-            prompt_parts.insert(-2, f"Previous conversation: {history_context[:300]}")
-            prompt_parts.insert(-2, "")
+
+    prompt_parts = f"""Instructions: {task}
+    Code to analyze:
+    {context.strip()}
+    User question: {question}
+    Your answer (use only information from the code):"""
 
     final_prompt = "\n".join(prompt_parts)
     logger.debug(f"Context length: {len(context)} chars")
@@ -242,40 +225,3 @@ def build_prompt(
     logger.debug(f"Final prompt length: {len(final_prompt)} chars")
 
     return final_prompt
-
-
-def _truncate_context(context: str, max_chars: int) -> str:
-    """
-    Truncates context to maximum character limit while preserving section structure.
-
-    Args:
-        context: The context string to truncate
-        max_chars: Maximum allowed characters
-
-    Returns:
-        str: Truncated context
-    """
-    if len(context) <= max_chars:
-        return context
-
-    if "##" in context:
-        sections = context.split("\n\n##")
-        truncated = []
-        current_length = 0
-
-        for i, section in enumerate(sections):
-            section_text = section if i == 0 else "##" + section
-
-            if current_length + len(section_text) + 2 <= max_chars:
-                truncated.append(section_text)
-                current_length += len(section_text) + 2
-            else:
-                break
-
-        if truncated:
-            result = "\n\n".join(truncated)
-            if len(truncated) < len(sections):
-                result += f"\n\n... [{len(sections) - len(truncated)} sections omitted]"
-            return result
-
-    return context[:max_chars] + "\n... [truncated]"
