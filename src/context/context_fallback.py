@@ -1,18 +1,18 @@
 import time
 
 from loguru import logger
+from typing import Any, Optional
 
-from context.context_tokens import estimate_tokens
 
 MIN_CODE_LENGTH = 30
-MAX_CONTEXT_TOKENS = 2000
+MAX_CONTEXT_CHARS = 8000
 FALLBACK_CACHE_DURATION = 300
 
 
 _context_cache = {"fallback": None, "timestamp": 0, "stats": {"hits": 0, "misses": 0}}
 
 
-def build_fallback_context(collection=None) -> str:
+def build_fallback_context(collection: Optional[Any] = None) -> str:
     """
     Builds (and caches) a fallback context from high-importance nodes.
 
@@ -57,21 +57,16 @@ def build_fallback_context(collection=None) -> str:
 
             if not doc or doc.startswith("<") or len(doc) < MIN_CODE_LENGTH:
                 continue
-            importance = 0.0
-            if isinstance(meta, dict):
-                if "combined" in meta:
-                    importance = float(meta.get("combined", 0.0))
-                elif "importance" in meta and isinstance(meta["importance"], dict):
-                    importance = float(meta["importance"].get("combined", 0.0))
-                kind = meta.get("kind", "")
-                if kind == "CLASS":
-                    importance += 2.0
-                elif kind == "METHOD" and len(doc) > 200:
-                    importance += 1.0
-                elif "controller" in node_id.lower():
-                    importance += 3.0
-                elif "service" in node_id.lower():
-                    importance += 2.0
+            importance = float(meta.get("combined", 0.0))
+            kind = meta.get("kind", "")
+            if kind == "CLASS":
+                importance += 2.0
+            elif kind == "METHOD" and len(doc) > 200:
+                importance += 1.0
+            elif "controller" in node_id.lower():
+                importance += 3.0
+            elif "service" in node_id.lower():
+                importance += 2.0
 
             candidates.append((importance, node_id, doc, meta))
 
@@ -81,16 +76,16 @@ def build_fallback_context(collection=None) -> str:
         candidates.sort(key=lambda x: x[0], reverse=True)
 
         context_parts = []
-        current_tokens = 0
-        max_fallback_tokens = MAX_CONTEXT_TOKENS // 2
+        current_chars = 0
+        max_fallback_chars = MAX_CONTEXT_CHARS // 2
 
         for importance, node_id, doc, meta in candidates[:10]:
             kind = meta.get("kind", "CODE")
             section = f"## {kind}: {node_id}\n{doc.strip()}"
-            section_tokens = estimate_tokens(section, is_code=True)
-            if current_tokens + section_tokens <= max_fallback_tokens:
+            section_chars = len(section)
+            if current_chars + section_chars <= max_fallback_chars:
                 context_parts.append(section)
-                current_tokens += section_tokens
+                current_chars += section_chars
             else:
                 break
 
@@ -99,9 +94,7 @@ def build_fallback_context(collection=None) -> str:
         _context_cache["fallback"] = result
         _context_cache["timestamp"] = current_time
 
-        logger.debug(
-            f"Built fallback context: {current_tokens} tokens, {len(context_parts)} sections"
-        )
+        logger.debug(f"Built fallback context: {current_chars} chars, {len(context_parts)} sections")
         return result
 
     except Exception as e:

@@ -185,7 +185,7 @@ async def get_general_nodes_context(
     max_neighbors = params.get("max_neighbors", 3)
     logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
 
-    if analysis.primary_intent == "exception":
+    if analysis.primary_intent == IntentCategory.EXCEPTION:
         logger.debug("EXCEPTION category detected - forcing embeddings search")
         embeddings_input = [question]
         query_embeddings = generate_embeddings_graph(embeddings_input, model_name)

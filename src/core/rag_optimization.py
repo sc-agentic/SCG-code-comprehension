@@ -3,7 +3,9 @@ from typing import Optional, Tuple
 import torch
 from transformers import AutoModel, AutoTokenizer
 
-from src.core.config import CODEBERT_MODEL_NAME
+from src.core.config import CODEBERT_MODEL_NAME, embedding_model
+
+from sentence_transformers import SentenceTransformer
 
 _codebert_model: Optional[AutoModel] = None
 _codebert_tokenzier: Optional[AutoTokenizer] = None
@@ -46,3 +48,12 @@ def _get_cached_model() -> bool:
     """
     get_codebert_model()
     return True
+
+
+_model = None
+
+def _get_model():
+    global _model
+    if _model is None:
+        _model = SentenceTransformer(embedding_model)
+    return _model

@@ -49,21 +49,10 @@ class PrompRequest(BaseModel):
         return v
 
 
-class BaseRAGResponse(BaseModel):
+class SimpleRAGResponse(BaseModel):
     answer: str = Field(..., min_length=1)
     processing_time: Optional[float] = Field(default=None, ge=0)
     timestamp: float = Field(default_factory=time.time)
-
-    @field_validator("answer")
-    @classmethod
-    def answer_not_empty(cls, v):
-        if not v.strip():
-            raise ValueError("Answer is empty")
-        return v
-
-
-class SimpleRAGResponse(BaseRAGResponse):
-    pass
 
 
 class ConversationMessage(BaseModel):

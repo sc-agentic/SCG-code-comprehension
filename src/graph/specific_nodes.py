@@ -1,7 +1,6 @@
 import time
 from typing import Any, Dict, List, Tuple, Optional
 from loguru import logger
-from core.intent_analyzer import get_intent_analyzer
 from core.models import IntentAnalysis, IntentCategory
 from graph.NeighborTypeEnum import NeighborTypeEnum
 from graph.reranking import rerank_results
@@ -11,8 +10,7 @@ from graph.retrieval_utils import (
     expand_usage_results,
     expand_definition_neighbors,
 )
-from graph.retriver import extract_key_value_pairs_simple
-from graph.similar_node_optimization import get_graph_model
+from graph.model_cache import get_graph_model
 
 
 async def get_specific_nodes_context(
@@ -78,7 +76,7 @@ async def get_specific_nodes_context(
         confidence = getattr(analysis, "confidence", 0.5)
 
 
-        if category.lower() == "usage":
+        if category == IntentCategory.USAGE:
             logger.debug("Usage question. Searching in related_entities")
             target_entity = identify_target_entity(unique_results)
             top_nodes = expand_usage_results(unique_results, collection, target_entity)

@@ -1,10 +1,8 @@
 import json
-import os
 import re
 from typing import Any, Dict, List, Tuple
 
 from loguru import logger
-from sentence_transformers import SentenceTransformer
 
 from src.clients.chroma_client import (
     default_collection_name,
@@ -15,58 +13,11 @@ from src.clients.llm_client import call_llm
 from src.core.config import (
     CODEBERT_MODEL_NAME,
     default_chroma_path,
-    default_classifier_embeddings_path,
-    default_classifier_model,
 )
 from src.core.intent_analyzer import classify_question, get_intent_analyzer
 from src.graph.generate_embeddings_graph import generate_embeddings_graph
 
 default_top_k = 7
-
-
-def load_classifier_embeddings(path: str = None) -> dict:
-    """
-    Loads serialized classifier embeddings from disk.
-
-    Args:
-        path (str, optional): Path to the embeddings JSON file.
-            Defaults to `default_classifier_embeddings_path`.
-
-    Returns:
-        dict: Parsed embeddings payload.
-
-    Raises:
-        FileNotFoundError: If the embeddings file does not exist.
-    """
-    embeddings_path = path or default_classifier_embeddings_path
-    if not os.path.exists(embeddings_path):
-        raise FileNotFoundError("Classifier embeddings not found")
-    with open(embeddings_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def get_classifier_model(model_name: str = None) -> SentenceTransformer:
-    """
-    Initializes and returns the sentence-transformer classifier model.
-
-    Args:
-        model_name (str, optional): Hugging Face model name.
-            Defaults to `default_classifier_model`.
-
-    Returns:
-        SentenceTransformer: Loaded sentence-transformer model.
-    """
-    model_name = model_name or default_classifier_model
-    return SentenceTransformer(model_name)
-
-
-try:
-    classifier_embeddings = load_classifier_embeddings()
-    classifier_model = get_classifier_model()
-except Exception as e:
-    logger.error(f"Error with loading classifier components: {e}")
-    classifier_embeddings = {}
-    classifier_model = None
 
 chroma_client = get_chroma_client(storage_path=default_chroma_path)
 

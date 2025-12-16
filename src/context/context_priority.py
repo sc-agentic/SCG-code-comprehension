@@ -23,11 +23,9 @@ def get_node_priority_score(node_data: Dict[str, Any], category: str) -> float:
     kind = metadata.get("kind", "")
 
     score = 0.0
-    importance = metadata.get("importance", {})
-    if isinstance(importance, dict):
-        score += importance.get("combined", 0.0) * 0.3
-        score += importance.get("pagerank", 0.0) * 100
-        score += importance.get("in_degree", 0.0) * 0.1
+    score += float(metadata.get("combined", 0.0)) * 0.3
+    score += float(metadata.get("pagerank", 0.0)) * 100
+    score += float(metadata.get("in_degree", 0.0)) * 0.1
 
     if category == "usage":
         if "controller" in node_id.lower() and "test" not in node_id.lower():

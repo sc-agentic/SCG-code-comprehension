@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import time
-from typing import Dict
 
 import httpx
 from fastapi import FastAPI, HTTPException, status
@@ -22,7 +21,6 @@ from src.core.config import (
     ground_truth,
     projects,
 )
-from src.core.evaluator import RAGEvaluator
 from src.core.intent_analyzer import get_intent_analyzer
 from src.core.models import (
     ConversationHistory,
@@ -30,7 +28,12 @@ from src.core.models import (
     PrompRequest,
     SimpleRAGResponse,
 )
+from dotenv import load_dotenv
+load_dotenv()
 from src.core.prompt import build_prompt
+from src.core.judge import judge_answer
+from src.core.token_counter import count_tokens
+
 
 
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +55,6 @@ timeout: httpx.Timeout = httpx.Timeout(200.0)
 client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
 conversation_history: ConversationHistory = ConversationHistory(max_history_pairs=HISTORY_LIMIT)
 
-evaluator: RAGEvaluator = None
 
 
 def warm_up_models() -> None:
@@ -65,7 +67,7 @@ def warm_up_models() -> None:
     start_time = time.time()
     try:
         from src.core.rag_optimization import _get_cached_model
-        from src.graph.similar_node_optimization import get_graph_model
+        from src.graph.model_cache import get_graph_model
 
         get_graph_model()
         logger.info("Graph model zaladowany")
@@ -75,26 +77,6 @@ def warm_up_models() -> None:
         logger.info(f"RAG models zaladowane w {warum_time:.2f}s")
     except Exception as e:
         logger.error(f"Model warmup failed: {e}")
-
-
-def load_evaluator() -> None:
-    """
-    Loads the RAG evaluator if the ground truth file exists.
-
-    Initializes a global `evaluator` using RAGEvaluator with LLM judging.
-    Logs success or failure; sets `evaluator` to None on error or missing file.
-    """
-    global evaluator
-    ground_truth_path = ground_truth
-    if os.path.exists(ground_truth_path):
-        try:
-            evaluator = RAGEvaluator(test_suite_path=ground_truth_path)
-        except Exception as e:
-            logger.error(f"Failed to load evaluator: {e}")
-            evaluator = None
-    else:
-        logger.info(f"Ground truth file not found at {ground_truth_path}")
-        evaluator = None
 
 
 def log_metrics(metrics: PerformanceMetrics) -> None:
@@ -110,58 +92,6 @@ def log_metrics(metrics: PerformanceMetrics) -> None:
         f"context_len={metrics.context_length}, "
         f"response_len={metrics.response_length}"
     )
-
-
-async def evaluate_if_needed(question: str, answer: str, context: str) -> Dict:
-    """
-    Evaluates a model's answer against ground truth if available.
-    Finds the matching question in the evaluator's test suite and computes
-    comprehensive RAG metrics (RAGAS, context recall, faithfulness).
-    Logs results and returns evaluation data or None on failure.
-
-    Args:
-        question (str): The user or test question to evaluate.
-        answer (str): The model-generated answer.
-        context (str): Retrieved context(s).
-
-    Returns:
-        Dict | None: A dictionary containing question ID, category, and
-        computed metrics, or None if evaluation is skipped or fails.
-    """
-    if evaluator is None:
-        return None
-    matching_question = None
-    for test_question in evaluator.test_suite.questions:
-        if test_question.question.lower().strip() == question.lower().strip():
-            matching_question = test_question
-            break
-    if matching_question is None:
-        logger.debug("Question not found in ground truth")
-        return None
-    retrieved_contexts = []
-    for ctx in context.split("##"):
-        ctx = ctx.strip()
-        if ctx:
-            retrieved_contexts.append(ctx)
-    try:
-        metrics_report = evaluator.rag_metrics.full_evaluation(
-            question=question,
-            answer=answer,
-            retrieved_contexts=retrieved_contexts,
-            ground_truth_answer=matching_question.correct_answer,
-            ground_truth_contexts=matching_question.ground_truth_contexts,
-            key_entities=matching_question.key_entities,
-            key_facts=matching_question.key_facts,
-        )
-        return {
-            "question_id": matching_question.id,
-            "category": matching_question.category,
-            "metrics": metrics_report,
-        }
-    except Exception as e:
-        logger.error(f"Evaluation failed for question {matching_question.id}: {e}")
-        logger.exception(e)
-        return None
 
 
 async def get_llm_response(prompt: str) -> str:
@@ -388,6 +318,7 @@ async def retrieve_context(question: str, node_func, params: dict):
             - context (str): Retrieved context or error message
             - matches (int): Number of matching nodes found
     """
+    start_time = time.time()
     logger.info(f"Received question: {question}")
 
     if params is None:
@@ -453,12 +384,34 @@ async def retrieve_context(question: str, node_func, params: dict):
             context = str(context)
 
         logger.info(f"Context: {context}")
+        llm_start = time.time()
+        answer = await get_llm_response(prompt)
+        llm_time = time.time() - llm_start
+        logger.info(f"LLM response: {llm_time:.3f}s")
+        context_tokens = count_tokens(context)
+        prompt_tokens = count_tokens(prompt)
+        answer_tokens = count_tokens(answer)
+        logger.info(f"Tokens: context: {context_tokens}, prompt: {prompt_tokens}, answer: {answer_tokens}")
+
+        score = judge_answer(question, answer, context)
+        if score:
+            logger.info(f"Judge score: {score}/5")
+        total_time = time.time() - start_time
+        logger.info(f"Total time: {total_time:.3f}s")
 
         return {
             "status": "success",
             "context": context,
             "prompt": prompt,
+            "answer": answer,
             "matches": len(matches) if matches else 0,
+            "score": score,
+            "total_time": total_time,
+            "tokens": {
+                "context": context_tokens,
+                "prompt": prompt_tokens,
+                "answer": answer_tokens
+            }
         }
 
     except Exception as e:
@@ -479,7 +432,6 @@ async def startup_event():
     logger.info("Starting RAG application...")
     warm_up_models()
 
-    load_evaluator()
 
     try:
         logger.info("Checking Ollama server connection...")

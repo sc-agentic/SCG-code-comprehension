@@ -1,6 +1,11 @@
 import re
 
 MAX_DEFINITION_LINES = 20
+MAX_EXCEPTION_LINES = 40
+MAX_TESTING_LINES = 50
+MAX_IMPLEMENTATION_LINES = 60
+MAX_CODE_PREVIEW_CHARS = 400
+
 
 
 def filter_definition_code(code: str, node_id: str, kind: str) -> str:
@@ -22,7 +27,7 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
         return ""
 
     if kind not in ["CLASS", "INTERFACE"]:
-        return code[:400]
+        return code[:MAX_CODE_PREVIEW_CHARS]
 
     definition_lines = []
     lines = code.split("\n")
@@ -93,7 +98,7 @@ def filter_exception_code(code: str) -> str:
             continue
         if line_clean.startswith("import") and ("Exception" in line_clean or "Error" in line_clean):
             exception_lines.append(line_clean)
-    return "\n".join(exception_lines[:40])
+    return "\n".join(exception_lines[:MAX_EXCEPTION_LINES])
 
 
 def filter_testing_code(code: str) -> str:
@@ -143,7 +148,7 @@ def filter_testing_code(code: str) -> str:
         ):
             testing_lines.append(line_stripped)
 
-    return "\n".join(testing_lines[:50])
+    return "\n".join(testing_lines[:MAX_TESTING_LINES])
 
 
 def filter_implementation_code(code: str) -> str:
@@ -181,4 +186,4 @@ def filter_implementation_code(code: str) -> str:
 
         implementation_lines.append(line_stripped)
 
-    return "\n".join(implementation_lines[:60])
+    return "\n".join(implementation_lines[:MAX_IMPLEMENTATION_LINES])

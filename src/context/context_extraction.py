@@ -50,6 +50,11 @@ def extract_target_from_question(question: str) -> Optional[str]:
         r"(\w+controller)",
         r"(\w+service)",
         r"(\w+repository)",
+        r"metod[aąęy]?\s+(\w+)",
+        r"(\w+)\s+metod[aąęy]?",
+        r"klas[aąęy]?\s+(\w+)",
+        r"(\w+)\s+klas[aąęy]?",
+        r"dla\s+klasy\s+(\w+)"
     ]
 
     for pattern in patterns:
