@@ -19,40 +19,6 @@ class RAGMetrics:
         """
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
-    def context_precision(
-        self, question: str, retrieved_contexts: List[str], ground_truth_answer: str, k: int = None
-    ) -> float:
-        """
-        Estimates precision of retrieved contexts vs. ground-truth answer.
-
-        Counts the fraction of top-k retrieved contexts that are semantically
-        similar to the ground-truth answer above a threshold.
-
-        Args:
-            question (str): (Unused here, reserved for future variants.)
-            retrieved_contexts (List[str]): Retrieved context snippets.
-            ground_truth_answer (str): Reference answer text.
-            k (int, optional): Number of contexts to consider (defaults to all).
-
-        Returns:
-            float: Precision in [0, 1].
-        """
-        if not retrieved_contexts or not ground_truth_answer:
-            return 0.0
-        k = k or len(retrieved_contexts)
-        contexts_to_check = retrieved_contexts[:k]
-        gt_answer_emb = self.embedding_model.encode([ground_truth_answer])
-        relevant_count = 0
-        threshold = 0.3
-        for context in contexts_to_check:
-            context_emb = self.embedding_model.encode([context])
-            similarity = cosine_similarity(gt_answer_emb, context_emb)[0][0]
-            if similarity > threshold:
-                relevant_count += 1
-        precision = relevant_count / k
-        logger.debug(f"Context Precision: {relevant_count}/{k} contexts relevant = {precision:.3f}")
-        return precision
-
     def context_recall(
         self,
         retrieved_contexts: List[str],
@@ -252,14 +218,12 @@ class RAGMetrics:
         question: str,
         answer: str,
         retrieved_contexts: List[str],
-        ground_truth_answer: str,
         ground_truth_contexts: List[str],
     ) -> Dict[str, float]:
         """
         Computes a simple RAGAS-like aggregate with component metrics.
 
         Components:
-          - context_precision
           - context_recall
           - faithfulness
           - answer_relevance
@@ -277,11 +241,10 @@ class RAGMetrics:
         Returns:
             Dict[str, float]: Component scores and overall 'ragas_score'.
         """
-        context_prec = self.context_precision(question, retrieved_contexts, ground_truth_answer)
         context_rec = self.context_recall(retrieved_contexts, ground_truth_contexts)
         faith = self.faithfulness(answer, retrieved_contexts)
         ans_rel = self.answer_relevance(question, answer)
-        scores = [context_prec, context_rec, faith, ans_rel]
+        scores = [context_rec, faith, ans_rel]
         ragas = 0.0
         all_positive = all(s > 0 for s in scores)
         if all_positive:
@@ -289,7 +252,6 @@ class RAGMetrics:
             ragas = 4 / total
 
         return {
-            "context_precision": round(context_prec, 3),
             "context_recall": round(context_rec, 3),
             "faithfulness": round(faith, 3),
             "answer_relevance": round(ans_rel, 3),
@@ -301,10 +263,8 @@ class RAGMetrics:
         question: str,
         answer: str,
         retrieved_contexts: List[str],
-        ground_truth_answer: str,
         ground_truth_contexts: List[str],
         key_entities: List[str] = None,
-        key_facts: List[str] = None,
     ) -> Dict[str, Any]:
         """
         Runs a complete evaluation and returns component + optional metrics.
@@ -313,10 +273,8 @@ class RAGMetrics:
             question (str): Original question.
             answer (str): Generated answer to evaluate.
             retrieved_contexts (List[str]): Context snippets given to the model.
-            ground_truth_answer (str): Reference answer.
             ground_truth_contexts (List[str]): Reference contexts.
             key_entities (List[str], optional): Entities expected in context.
-            key_facts (List[str], optional): (Reserved) Expected facts.
 
         Returns:
             Dict[str, Any]: {
@@ -328,16 +286,13 @@ class RAGMetrics:
             }
         """
         ragas = self.ragas_score(
-            question, answer, retrieved_contexts, ground_truth_answer, ground_truth_contexts
+            question, answer, retrieved_contexts, ground_truth_contexts
         )
         optional = {}
         if key_entities:
             optional["context_entity_recall"] = round(
                 self.context_entity_recall(retrieved_contexts, key_entities), 3
             )
-        optional["answer_semantic_similarity"] = round(
-            self.answer_semantic_similarity(answer, ground_truth_answer), 3
-        )
         return {
             "ragas": ragas,
             "optional_metrics": optional,

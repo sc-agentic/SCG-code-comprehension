@@ -38,6 +38,7 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
         class_name = node_id
     for line in lines:
         line_clean = line.strip()
+        line_clean = line_clean.lstrip("/* ").strip()
         if not line_clean or line_clean.startswith("//") or line_clean.startswith("*"):
             continue
         if line_clean.startswith("@"):

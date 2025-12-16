@@ -348,11 +348,14 @@ def build_context(
             return False
         code_preview, header = filter_code_for_category(code, node_id, kind, category)
         if not code_preview:
+            logger.debug("No Code preview")
             return False
 
         full_section = header + code_preview + "\n"
         section_chars = len(full_section)
         if current_chars + section_chars <= max_context_chars - 50:
+            logger.debug(
+                f"Current chars: {current_chars}, Section chars: {section_chars}, Max chars: {max_context_chars}")
             context_sections.append((priority, full_section))
             seen_codes.add(code)
             used_nodes.add(node_id)
@@ -368,6 +371,9 @@ def build_context(
         combined_score = score + priority_score * 0.1
         scored_nodes.append((combined_score, node_data))
     scored_nodes.sort(key=lambda x: x[0], reverse=True)
+
+    for score, node_data in scored_nodes:
+        logger.info(node_data.get("node", ""))
 
     added_base = 0
     for score, node_data in scored_nodes[:base_nodes_limit * 2]:

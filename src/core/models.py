@@ -131,18 +131,27 @@ class GroundTruthSource(BaseModel):
     quote: str
 
 
+class JunieStats(BaseModel):
+    answer: str
+    time: float
+    tokens: int
+    hallucination: float
+    correctness: float
+    used_context: Optional[List[str]] = None
+
+
+class JunieStatsStrucutre(BaseModel):
+    with_mcp: JunieStats
+    without_mcp: JunieStats
+
 class TestQuestion(BaseModel):
     id: str
     question: str
     category: str
-    ground_truth_sources: Dict[str, GroundTruthSource] = Field(default_factory=dict)
-    correct_answer: str
-    expected_keywords: List[str] = Field(default_factory=list)
-    expected_documents: List[str] = Field(default_factory=list)
-    key_points: List[str] = Field(default_factory=list)
     ground_truth_contexts: List[str] = Field(default_factory=list)
-    key_entities: List[str] = Field(default_factory=list)
     key_facts: List[str] = Field(default_factory=list)
+    key_entities: List[str] = Field(default_factory=list)
+    junie_stats: JunieStatsStrucutre = Field(default_factory=JunieStatsStrucutre)
 
 
 class EvaluationCriteria(BaseModel):

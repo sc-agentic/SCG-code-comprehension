@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 from loguru import logger
 from graph.NeighborTypeEnum import NeighborTypeEnum
@@ -213,6 +214,7 @@ def expand_definition_neighbors(
             neighbors = {"ids": [], "metadatas": [], "documents": []}
 
         neighbors_added = 0
+        logger.info(f"Neighbors: {related_entities_str}")
         for j in range(len(neighbors["ids"])):
             if neighbors_added >= max_neighbors:
                 break
@@ -225,10 +227,10 @@ def expand_definition_neighbors(
                 if NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types:
                     continue
 
+            pattern = re.escape(node_id) + r"(\.|$|\?)"
             if (
                 parent_kind == "CLASS"
-                and neighbor_kind in ("METHOD", "VARIABLE")
-                and str(neighbor_id).startswith(f"{node_id}.")
+                and re.match(pattern, str(neighbor_id))
             ) or neighbor_id in added_nodes:
                 continue
 
@@ -240,5 +242,7 @@ def expand_definition_neighbors(
             )
             added_nodes.add(neighbor_id)
             neighbors_added += 1
+
+        logger.info(f"Added nodes: {added_nodes}")
 
     return top_nodes

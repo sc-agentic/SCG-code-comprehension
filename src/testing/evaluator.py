@@ -1,7 +1,7 @@
 from loguru import logger
 
 from src.core.models import GroundTruthTestSuite
-from src.core.rag_metrics import RAGMetrics
+from testing.rag_metrics import RAGMetrics
 
 
 class RAGEvaluator:

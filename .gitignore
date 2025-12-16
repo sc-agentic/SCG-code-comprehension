@@ -13,6 +13,6 @@ uv.lock
 .pre-commit/
 .pre-commit-cache/
 inzynierka_pro1.egg-info/
-src/app/.env
+src/testing/.env
 data/embeddings/
 data/graph/

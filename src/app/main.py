@@ -18,7 +18,6 @@ from src.core.config import (
     MODEL_NAME,
     NODE_CONTEXT_HISTORY,
     OLLAMA_API_URL,
-    ground_truth,
     projects,
 )
 from src.core.intent_analyzer import get_intent_analyzer
@@ -31,8 +30,8 @@ from src.core.models import (
 from dotenv import load_dotenv
 load_dotenv()
 from src.core.prompt import build_prompt
-from src.core.judge import judge_answer
-from src.core.token_counter import count_tokens
+from testing.judge import judge_answer
+from testing.token_counter import count_tokens
 
 
 
@@ -384,18 +383,10 @@ async def retrieve_context(question: str, node_func, params: dict):
             context = str(context)
 
         logger.info(f"Context: {context}")
-        llm_start = time.time()
-        answer = await get_llm_response(prompt)
-        llm_time = time.time() - llm_start
-        logger.info(f"LLM response: {llm_time:.3f}s")
-        context_tokens = count_tokens(context)
-        prompt_tokens = count_tokens(prompt)
-        answer_tokens = count_tokens(answer)
-        logger.info(f"Tokens: context: {context_tokens}, prompt: {prompt_tokens}, answer: {answer_tokens}")
+        context_tokens = count_tokens(context, "llama")
+        prompt_tokens = count_tokens(prompt, "llama")
+        logger.info(f"Tokens: context: {context_tokens}, prompt: {prompt_tokens}")
 
-        score = judge_answer(question, answer, context)
-        if score:
-            logger.info(f"Judge score: {score}/5")
         total_time = time.time() - start_time
         logger.info(f"Total time: {total_time:.3f}s")
 
@@ -403,14 +394,11 @@ async def retrieve_context(question: str, node_func, params: dict):
             "status": "success",
             "context": context,
             "prompt": prompt,
-            "answer": answer,
             "matches": len(matches) if matches else 0,
-            "score": score,
             "total_time": total_time,
             "tokens": {
                 "context": context_tokens,
                 "prompt": prompt_tokens,
-                "answer": answer_tokens
             }
         }
 
