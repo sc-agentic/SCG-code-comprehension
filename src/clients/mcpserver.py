@@ -4,6 +4,8 @@ from typing import List
 import httpx
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
+
+from graph.NeighborTypeEnum import NeighborTypeEnum
 from graph.QueryTopMode import QueryTopMode
 
 mcp = FastMCP("scg-context")
@@ -150,7 +152,7 @@ async def ask_specific_nodes(
 
 
 @mcp.tool()
-async def ask_top_nodes(question: str, query_mode: QueryTopMode) -> str:
+async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str], metric: str) -> str:
     """
     Query for RANKINGS, TOP-N elements, largest/smallest values in code.
 
@@ -173,7 +175,9 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode) -> str:
     ```json
     {
       "question": "exact user question",
-      "query_mode": "list_only|full_desc"
+      "query_mode": "list_only|full_desc",
+      "kinds": [List of kinds],
+      "metric": "metric to filter nodes"
     }
     ```
 
@@ -184,18 +188,53 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode) -> str:
 
     **Do not user `null`, empty string or other values**. Always choose one of two available modes.
 
+    **kinds:**
+    `kinds` specifiecs the list of **TYPES OF NODES** to fetch based on user question.
+
+    Available options are: CLASS,METHOD,VARIABLE,CONSTRUCTOR,ANY.
+
+    - **HOW TO CHOOSE**:
+      - Question: "What are 5 most important classes" - `kinds` specified in question so go with ["CLASS"]
+      - Question: "What are all entities with none neighbors" - `kinds` is not specified so go with ["ANY"]
+      - Question: "What are 5 most important classes or methods?" - `kinds` is specified - go with ["CLASS", "METHOD"]
+      - Unsure what to choose - choose ["ANY"]
+
+
+    **metric:**
+    `metric` specifiecs the metric user wants to filter nodes with.
+
+    Available metrics are:
+        - loc - (lines of code),
+        - pagerank - importance based on the quantity and quality of links pointing to them
+        - katz - measures a node's influence in a network by summing its direct and indirect connections, assigning a diminishing weight to longer paths, meaning immediate neighbors matter more than distant ones.
+        - eigenvector - connection to most important entities
+        - in_degree - number of ingoing edges
+        - out_degree - number of outgoing edges
+        - combined - combined metric, most important entities
+        - number_of_neighbors - number of related entities'
+
+     - **HOW TO CHOOSE**:
+      - Question: "What are 5 most important classes" - `metric` is not specified in question so go with "combined"
+      - Question: "What are all entities with none neighbors" - `metric` is specified so go with "number_of_neighbors"
+      - Question: "What are 5 classes with most lines of code?" - `metric` is specified - go with "combined"
+      - Unsure what to choose - choose "combined"
+
     **Call examples:**
     ```json
     {
-      "question": "What are 5 most imporatant classes",
+      "question": "What are 5 most important classes",
       "query_mode": "list_only"
+      "kinds": ["CLASS"],
+      "metric": "combined"
     }
     ```
 
     ```json
     {
-      "question": "Describe 5 most imporatant classes",
-      "query_mode": "full_desc"
+      "question": "Describe 5 most important classes",
+      "query_mode": "full_desc",
+      "kinds": ["CLASS"],
+      "metric": "combined"
     }
     ```
 
@@ -206,7 +245,7 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode) -> str:
     ☐ query_mode matches user's intent? (list vs detailed description)
     """
     logger.info("MCP top_nodes question: {}".format(question))
-    params = {"query_mode": query_mode.value}
+    params = {"query_mode": query_mode.value, "kinds": kinds, "metric": metric}
     return await call_fastapi("ask_top_nodes", question, params)
 
 
