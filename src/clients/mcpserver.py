@@ -152,7 +152,8 @@ async def ask_specific_nodes(
 
 
 @mcp.tool()
-async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str], metric: str) -> str:
+async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str], metric: str, limit: str,
+                        exact_metric_value: int, order: str) -> str:
     """
     Query for RANKINGS, TOP-N elements, largest/smallest values in code.
 
@@ -178,6 +179,9 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str
       "query_mode": "list_only|full_desc",
       "kinds": [List of kinds],
       "metric": "metric to filter nodes"
+      "limit": "number of nodes to fetch"
+      "exact_metric_value": "exact value of metric if present in question",
+      "order": "desc|asc"
     }
     ```
 
@@ -219,6 +223,30 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str
       - Question: "What are 5 classes with most lines of code?" - `metric` is specified - go with "combined"
       - Unsure what to choose - choose "combined"
 
+    **"limit:"**
+    `limit` specifies how many nodes to fetch based on user question.
+
+    - **HOW TO CHOOSE**:
+        - "all", "everything", "wszystkie" or something like that is in question -> "limit" = "all"
+        - If the question contains a number connected to number of nodes -> "limit" = that number but as string
+        - If `query_mode` is `full_desc` limit can't be bigger than 10.
+
+    **exact_metric_value:**
+    `exact_metric_value specifies value of node metrics that needs to be fetched.
+
+    - **HOW TO CHOOSE**:
+        - If limit = "all" AND user explicitly mentions a metric value (example: "with none neighbors", "with 0 neighbors", "with 0 lines of code") → metric_value = that value
+            -Treat words like "none", "no", "without", "brak" as 0
+        - Otherwise → metric_value = 0
+
+    **order:**
+    `order` specifies order in which list of nodes is sorted
+
+    - **HOW TO CHOOSE**:
+       - If question contains words like "biggest", "largest", "most", "max" → use "desc"
+       - If question contains words like "smallest", "least", "min" → use "asc"
+       - If not sure → order = "desc"
+
     **Call examples:**
     ```json
     {
@@ -226,6 +254,9 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str
       "query_mode": "list_only"
       "kinds": ["CLASS"],
       "metric": "combined"
+      "limit": "5",
+      "exact_metric_value": 0,
+      "order": "desc"
     }
     ```
 
@@ -234,7 +265,22 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str
       "question": "Describe 5 most important classes",
       "query_mode": "full_desc",
       "kinds": ["CLASS"],
-      "metric": "combined"
+      "metric": "combined",
+      "limit": "5",
+      "exact_metric_value": 0,
+      "order": "desc"
+    }
+    ```
+
+    ```json
+    {
+      "question": "What are classes without neighbors",
+      "query_mode": "list_only",
+      "kinds": ["CLASS"],
+      "metric": "number_of_neighbors",
+      "limit": "all",
+      "exact_metric_value": 0,
+      "order": "desc"
     }
     ```
 
@@ -245,7 +291,7 @@ async def ask_top_nodes(question: str, query_mode: QueryTopMode, kinds: List[str
     ☐ query_mode matches user's intent? (list vs detailed description)
     """
     logger.info("MCP top_nodes question: {}".format(question))
-    params = {"query_mode": query_mode.value, "kinds": kinds, "metric": metric}
+    params = {"query_mode": query_mode.value, "kinds": kinds, "metric": metric, }
     return await call_fastapi("ask_top_nodes", question, params)
 
 
