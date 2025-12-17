@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 from collections import defaultdict
@@ -24,9 +25,9 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     project_parent = project_path.parent
     project_name = project_path.name
 
-    gen_cmd = ["scg-cli", "generate", str(project_path)]
-    logger.info(f"Running: {' '.join(gen_cmd)}")
-    subprocess.run(gen_cmd, check=True, cwd=project_path, shell=True)
+    # gen_cmd = ["scg-cli", "generate", str(project_path)]
+    # logger.info(f"Running: {' '.join(gen_cmd)}")
+    # subprocess.run(gen_cmd, check=True, cwd=project_path, shell=True)
 
     ccn_cmd = ["scg-cli", "export", "-g", "CCN", "-o", "gdf", str(project_path)]
     logger.info(f"Running: {' '.join(ccn_cmd)}")
@@ -133,6 +134,7 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
     )
     json_data = []
 
+    max_combined = 0
     for info, emb in zip(nodes_info, embeddings):
         node_id = info["node_id"]
         scg_neighbors = set(scg.neighbors(node_id)) if scg.has_node(node_id) else set()
@@ -164,6 +166,10 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
             "combined": importance_scores["combined"].get(node_id, 0.0),
         }
 
+        node_combined = importance_scores["combined"].get(node_id, 0.0)
+        if node_combined > max_combined:
+            max_combined = node_combined
+
         json_data.append({**metadata, "code": info["code"], "embedding": emb.tolist()})
 
         try:
@@ -178,6 +184,13 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
     with open("../../data/embeddings/node_embedding.json", "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
+    with open("../core/config.py", "r") as f:
+        content = f.read()
+
+    new_max_combined = re.sub(r'COMBINED_MAX\s*=\s*\d+', f'COMBINED_MAX = {max_combined}', content)
+
+    with open("../core/config.py", "w") as f:
+        f.write(new_max_combined)
 
 if __name__ == "__main__":
     import argparse

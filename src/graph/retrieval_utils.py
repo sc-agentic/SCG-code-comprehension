@@ -140,6 +140,14 @@ def identify_target_entity(unique_results: List[Tuple[float, Dict[str, Any]]]) -
     return None
 
 
+def is_child_of(node_id_parent, node_id_candidate):
+    for sep in ["#", "?"]:
+        if sep in node_id_candidate:
+            parent, _ = node_id_candidate.split(sep, 1)
+            if parent == node_id_parent:
+                return True
+    return node_id_candidate == node_id_parent
+
 def expand_usage_results(
     unique_results: List[Tuple[float, Dict[str, Any]]],
     collection: Any,
@@ -227,10 +235,9 @@ def expand_definition_neighbors(
                 if NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types:
                     continue
 
-            pattern = re.escape(node_id) + r"(\.|$|\?)"
             if (
                 parent_kind == "CLASS"
-                and re.match(pattern, str(neighbor_id))
+                and is_child_of(node_id, neighbor_id)
             ) or neighbor_id in added_nodes:
                 continue
 
