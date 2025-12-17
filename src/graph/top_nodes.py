@@ -65,6 +65,11 @@ async def get_top_nodes_context(
         kinds = [kinds]
     kinds = [NeighborTypeEnum[kind.upper()] for kind in kinds]
     metric = params.get("metric", "combined")
+    limit = params.get("limit", 10)
+    if limit.isnumeric():
+        limit = int(limit)
+    exact_metric_value = params.get("exact_metric_value", 0)
+    order = params.get("order", "desc")
 
     if isinstance(query_mode, str):
         try:
@@ -73,48 +78,8 @@ async def get_top_nodes_context(
             logger.warning(f"Invalid query_mode '{query_mode}', using LIST_ONLY.")
             query_mode = QueryTopMode.LIST_ONLY
 
-    classification_prompt = f"""
-    User question: "{question}"
-
-    Your task:
-    Analyze user question following rules specified below (bear in mind that question can be in polish):
-    
-    1. Determine number of nodes ("limit"):
-        - "all", "everything", "wszystkie" is in question -> "limit" = "all"
-        - If the question contains a number connected to number of nodes -> "limit" = that number
-        
-    2. Exact metric value ("exact_metric_value"):
-        - If limit = "all" AND user explicitly mentions a metric value (example: "with none neighbors", "with 0 neighbors", "with 0 lines of code") → metric_value = that value
-            -Treat words like "none", "no", "without", "brak" as 0
-        - Otherwise → metric_value = 0
-        
-    3. Sort order ("order"):
-       - If question contains words like "biggest", "largest", "most", "max" → use "desc"
-       - If question contains words like "smallest", "least", "min" → use "asc"
-       - If not sure → order = "desc"
-    
-    Rules:
-    - ALWAYS return valid JSON only
-    - DO NOT include comments, explanations, or extra text
-    - Do NOT infer or guess anything outside the rules above
-
-    Return ONLY valid JSON format:
-    {{"limit": 5, "order": "desc", "exact_metric_value": 0}}
-    """
+    logger.info(f"Params: {query_mode, kinds, metric, limit, exact_metric_value, order}")
     start_time = time.time()
-    analysis = await call_llm(classification_prompt)
-    logger.debug(f"Top nodes analysis: {analysis}")
-    try:
-        parsed = extract_json(analysis)
-        order = parsed.get("order", "desc")
-        limit = parsed.get("limit", 5)
-        exact_metric_value = parsed.get("exact_metric_value", 0)
-    except json.JSONDecodeError:
-        order = "desc"
-        limit = 5
-        exact_metric_value = 0
-
-    logger.info(f"Parsed: {parsed}")
 
     results = collection.get(include=["metadatas", "documents"])
 
@@ -137,8 +102,6 @@ async def get_top_nodes_context(
             key=lambda n: n["metric_value"],
             reverse=(order.lower() == "desc"),
         )[:limit]
-
-    logger.info(f"Top nodes: {top_nodes}")
 
     logger.debug(f"MODE: {query_mode}")
     if query_mode == QueryTopMode.LIST_ONLY:

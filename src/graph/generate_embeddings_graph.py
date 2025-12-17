@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import torch
+from loguru import logger
 from sklearn.preprocessing import normalize
 
 
@@ -158,8 +159,8 @@ def node_to_text(data: Dict[str, Any], project_root: Path) -> Dict[str, str]:
             - label (str): Node label or identifier.
             - code (str): Extracted code snippet or block.
     """
-    label = data.get("label", "")
-    kind = data.get("kind", "")
+    label = data.get("label", "").lower()
+    kind = data.get("kind", "").lower()
     uri = data.get("uri", "")
     location = data.get("location", "")
 

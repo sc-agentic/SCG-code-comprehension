@@ -119,32 +119,112 @@ Question is about ranking, top-N elements, largest/smalles values.
 ```json
 {
   "question": "exact user question",
-  "query_mode": "list_only|full_desc"
+  "query_mode": "list_only|full_desc",
+  "kinds": [List of kinds],
+  "metric": "metric to filter nodes"
+  "limit": "number of nodes to fetch"
+  "exact_metric_value": "exact value of metric if present in question",
+  "order": "desc|asc"
 }
 ```
 
-**query_mode:**
+    **query_mode:**
 
-- `"list_only"` — ranking only without detailed descriptions
-- `"full_desc"` — ranking with full description of each element
+    - `"list_only"` — ranking only without detailed descriptions
+    - `"full_desc"` — ranking with full description of each element
 
-**Do not user `null`, empty string or other values**. Always choose one of two available modes.
+    **Do not user `null`, empty string or other values**. Always choose one of two available modes.
 
-**Call examples:**
+    **kinds:**
+    `kinds` specifiecs the list of **TYPES OF NODES** to fetch based on user question.
 
-```json
-{
-  "question": "What are 5 most imporatant classes",
-  "query_mode": "list_only"
-}
-```
+    Available options are: CLASS,METHOD,VARIABLE,CONSTRUCTOR,ANY.
 
-```json
-{
-  "question": "Describe 5 most imporatant classes",
-  "query_mode": "full_desc"
-}
-```
+    - **HOW TO CHOOSE**:
+      - Question: "What are 5 most important classes" - `kinds` specified in question so go with ["CLASS"]
+      - Question: "What are all entities with none neighbors" - `kinds` is not specified so go with ["ANY"]
+      - Question: "What are 5 most important classes or methods?" - `kinds` is specified - go with ["CLASS", "METHOD"]
+      - Unsure what to choose - choose ["ANY"]
+
+
+    **metric:**
+    `metric` specifiecs the metric user wants to filter nodes with.
+
+    Available metrics are:
+        - loc - (lines of code),
+        - pagerank - importance based on the quantity and quality of links pointing to them
+        - katz - measures a node's influence in a network by summing its direct and indirect connections, assigning a diminishing weight to longer paths, meaning immediate neighbors matter more than distant ones.
+        - eigenvector - connection to most important entities
+        - in_degree - number of ingoing edges
+        - out_degree - number of outgoing edges
+        - combined - combined metric, most important entities
+        - number_of_neighbors - number of related entities'
+
+     - **HOW TO CHOOSE**:
+      - Question: "What are 5 most important classes" - `metric` is not specified in question so go with "combined"
+      - Question: "What are all entities with none neighbors" - `metric` is specified so go with "number_of_neighbors"
+      - Question: "What are 5 classes with most lines of code?" - `metric` is specified - go with "combined"
+      - Unsure what to choose - choose "combined"
+      
+    **"limit:"**
+    `limit` specifies how many nodes to fetch based on user question.
+
+    - **HOW TO CHOOSE**:
+        - "all", "everything", "wszystkie" or something like that is in question -> "limit" = "all"
+        - If the question contains a number connected to number of nodes -> "limit" = that number
+    
+    **exact_metric_value:**
+    `exact_metric_value specifies value of node metrics that needs to be fetched.
+    
+    - **HOW TO CHOOSE**:
+        - If limit = "all" AND user explicitly mentions a metric value (example: "with none neighbors", "with 0 neighbors", "with 0 lines of code") → metric_value = that value
+            -Treat words like "none", "no", "without", "brak" as 0
+        - Otherwise → metric_value = 0
+        
+    **order:**
+    `order` specifies order in which list of nodes is sorted
+
+    - **HOW TO CHOOSE**:
+       - If question contains words like "biggest", "largest", "most", "max" → use "desc"
+       - If question contains words like "smallest", "least", "min" → use "asc"
+       - If not sure → order = "desc"
+
+    **Call examples:**
+    ```json
+    {
+      "question": "What are 5 most important classes",
+      "query_mode": "list_only"
+      "kinds": ["CLASS"],
+      "metric": "combined"
+      "limit": 5,
+      "exact_metric_value": 0,
+      "order": "desc"
+    }
+    ```
+
+    ```json
+    {
+      "question": "Describe 5 most important classes",
+      "query_mode": "full_desc",
+      "kinds": ["CLASS"],
+      "metric": "combined",
+      "limit": 5,
+      "exact_metric_value": 0,
+      "order": "desc"
+    }
+    ```
+    
+    ```json
+    {
+      "question": "What are classes without neighbors",
+      "query_mode": "list_only",
+      "kinds": ["CLASS"],
+      "metric": "number_of_neighbors",
+      "limit": "all",
+      "exact_metric_value": 0,
+      "order": "desc"
+    }
+    ```
 ---
 
 ### 3. `ask_general_question` — General questions

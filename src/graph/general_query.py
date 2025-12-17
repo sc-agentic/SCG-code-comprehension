@@ -7,8 +7,10 @@ from context.context_builder import build_context
 from core.models import IntentAnalysis, IntentCategory
 from graph.generate_embeddings_graph import generate_embeddings_graph
 from graph.reranking import rerank_results
+from graph.retrieval_utils import is_child_of
 from src.clients.llm_client import call_llm
 from src.graph.usage_finder import find_usage_nodes
+from core.config import COMBINED_MAX
 
 max_usage_nodes_for_context = 3
 
@@ -47,16 +49,15 @@ def _filter_candidates(
         if score == 0:
             score = 0.1
 
-        combined_score = float(metadata.get("combined", 0.0))
-        hybrid_score = score * 100 + combined_score
+        combined_score_norm = (float(metadata.get("combined", 0.0)) / COMBINED_MAX)
+        hybrid_score = score + 0.1 * combined_score_norm
         candidate_nodes.append((node_id, metadata, doc, hybrid_score))
 
     return candidate_nodes
 
 
-async def _score_batch(
-    question: str, batch: List[Tuple[str, Dict[str, Any], str, float]], code_snippet_limit: int
-) -> List[Dict[str, Any]]:
+async def _score_node(
+        question: str, node, code_snippet_limit: int) -> int:
     """
     Scores a batch of candidates using LLM.
 
@@ -68,29 +69,25 @@ async def _score_batch(
     Returns:
         List of scored items from LLM
     """
-    code_snippets_map = []
-    for node_id, meta, doc, hybrid_score in batch:
-        snippet = "\n".join(doc.splitlines())[:code_snippet_limit]
-        code_snippets_map.append({"id": node_id, "code": snippet})
-    logger.info("Scoring batch")
+
+    logger.info(f"Scoring node: {node[0]}")
+    snippet = "\n".join(node[2].splitlines())[:code_snippet_limit]
+    logger.debug(f"Snippet: {snippet}")
     prompt = f"""
     Question: '{question}'
-
-    Rate each code fragment from 1 to 5:
+    
+    Rate code fragment from 1 to 5:
     1 = not relevant at all
     3 = moderately relevant, the full code should help answer the question
     5 = directly answers the question
-
-    Return JSON: [{{"id": "node_id", "score": 3}}, ...]
-
-    No comments or explanations.
-
-    Code fragments:
-    {json.dumps(code_snippets_map, indent=2)}
+    
+    Return only score. No comments or explanations.
+    
+    Code fragment:
+    {json.dumps(snippet, indent=2)}
     """
-
     answer = await call_llm(prompt)
-    logger.debug("LLM batch scoring response")
+    logger.debug(f"Answer: {answer}")
     clean_answer = re.sub(r"```.*?```", "", answer, flags=re.DOTALL).strip()
     try:
         return json.loads(clean_answer)
@@ -141,12 +138,10 @@ def expand_node_with_neighbors(
         if neighbor_id in seen_nodes:
             continue
         neighbor_metadata = neighbors["metadatas"][j]
-        neighbor_kind = neighbor_metadata.get("kind", "")
         neighbor_doc = neighbors["documents"][j] or ""
         if (
             metadata.get("kind") == "CLASS"
-            and (neighbor_kind == "METHOD" or neighbor_kind == "VARIABLE")
-            and str(neighbor_id).startswith(f"{node_id}.")
+                and is_child_of(node_id, neighbor_id)
         ):
             continue
         neighbors_data.append(
@@ -160,7 +155,7 @@ async def get_general_nodes_context(
     analysis: IntentAnalysis,
     model_name: str,
     collection: Any,
-    code_snippet_limit: int = 800,
+        code_snippet_limit: int = 400,
     batch_size: int = 5,
     **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
@@ -185,148 +180,116 @@ async def get_general_nodes_context(
     max_neighbors = params.get("max_neighbors", 3)
     logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
 
-    if analysis.primary_intent == IntentCategory.EXCEPTION:
-        logger.debug("EXCEPTION category detected - forcing embeddings search")
-        embeddings_input = [question]
-        query_embeddings = generate_embeddings_graph(embeddings_input, model_name)
-        query_result = collection.query(
-            query_embeddings=[query_embeddings[0].tolist()],
-            n_results=top_k * 2,
-            include=["embeddings", "metadatas", "documents", "distances"],
-        )
+    start_time = time.time()
+    logger.debug("Using LLM-based general_question filtering")
+    kind_weights = {
+        "CLASS": 2.0,
+        "INTERFACE": 1.8,
+        "METHOD": 1.0,
+        "CONSTRUCTOR": 1.2,
+        "VARIABLE": 0.8,
+        "PARAMETER": 0.5,
+    }
+    classification_prompt = f"""
+    User question: "{question}"
 
-        all_results = []
-        for i in range(len(query_result["ids"][0])):
-            score = 1 - query_result["distances"][0][i]
-            node_id = query_result["ids"][0][i]
-            metadata = query_result["metadatas"][0][i]
-            code = query_result["documents"][0][i]
-            all_results.append((score, {"node": node_id, "metadata": metadata, "code": code}))
+    Your task:
+    1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) 
+        are most relevant
+    2. Provide 5-10 keywords that should appear in node names
 
-        reranked_results = rerank_results(question, all_results, analysis)
-        seen = set()
-        unique_results = []
-        for score, node in reranked_results:
-            if node["node"] not in seen:
-                unique_results.append((score, node))
-                seen.add(node["node"])
+    Return ONLY valid JSON format:
+    {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
 
-        top_nodes = unique_results[:top_k]
-        logger.debug(f"EXCEPTION: found {len(top_nodes)} nodes via embeddings")
+    No comments, only JSON. Include that question can be in polish and english.
+    """
+    questionAnalysis = await call_llm(classification_prompt)
+    logger.debug(f"LLM analysis: {questionAnalysis}")
+    try:
+        questionAnalysis = json.loads(questionAnalysis)
+    except (json.JSONDecodeError, TypeError):
+        questionAnalysis = {"kinds": [], "keywords": []}
 
-    else:
-        start_time = time.time()
-        logger.debug("Using LLM-based general_question filtering")
-        kind_weights = {
-            "CLASS": 2.0,
-            "INTERFACE": 1.8,
-            "METHOD": 1.0,
-            "CONSTRUCTOR": 1.2,
-            "VARIABLE": 0.8,
-            "PARAMETER": 0.5,
-        }
-        classification_prompt = f"""
-        User question: "{question}"
+    kinds = set([k.upper() for k in questionAnalysis.get("kinds", [])])
+    keywords = [kw.lower() for kw in questionAnalysis.get("keywords", [])]
+    logger.debug(f"kinds: {kinds}, keywords: {keywords}")
 
-        Your task:
-        1. Determine which node types (CLASS, METHOD, VARIABLE, PARAMETER, CONSTRUCTOR) 
-            are most relevant
-        2. Provide 5-10 keywords that should appear in node names
+    all_nodes = collection.get(include=["metadatas", "documents"])
+    candidate_nodes = _filter_candidates(all_nodes, kinds, keywords, kind_weights)
 
-        Return ONLY valid JSON format:
-        {{"kinds": ["CLASS", "METHOD"], "keywords": ["frontend","controller","view"]}}
+    if not candidate_nodes:
+        logger.debug("No candidates found, selecting fallback top-5 by combined score")
+        fallback_nodes = sorted(
+            zip(all_nodes["ids"], all_nodes["metadatas"], all_nodes["documents"]),
+            key=lambda x: float(x[1].get("combined", 0.0)),
+            reverse=True,
+        )[:top_k]
+        return [
+            (1, {"node": nid, "metadata": meta, "code": doc})
+            for nid, meta, doc in fallback_nodes
+        ]
 
-        No comments, only JSON. Include that question can be in polish and english.
-        """
-        questionAnalysis = await call_llm(classification_prompt)
-        logger.debug(f"LLM analysis: {questionAnalysis}")
-        try:
-            questionAnalysis = json.loads(questionAnalysis)
-        except (json.JSONDecodeError, TypeError):
-            questionAnalysis = {"kinds": [], "keywords": []}
+    candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[: top_k * 2]
+    top_nodes = []
+    seen_nodes = set()
+    logger.info(f"Found {len(candidates_sorted)} candidates")
+    logger.debug(f"Candidate: {[n[1]['node'] for n in candidates_sorted]}")
+    for candidate in candidates_sorted:
+        node_id, metadata, doc, hybrid_score = candidate
 
-        kinds = set([k.upper() for k in questionAnalysis.get("kinds", [])])
-        keywords = [kw.lower() for kw in questionAnalysis.get("keywords", [])]
-        logger.debug(f"kinds: {kinds}, keywords: {keywords}")
+        score = await _score_node(question, candidate, code_snippet_limit)
+        logger.debug(f"LLM score for node {node_id}: {score}")
 
-        all_nodes = collection.get(include=["metadatas", "documents"])
-        candidate_nodes = _filter_candidates(all_nodes, kinds, keywords, kind_weights)
-
-        if not candidate_nodes:
-            logger.debug("No candidates found, selecting fallback top-5 by combined score")
-            fallback_nodes = sorted(
-                zip(all_nodes["ids"], all_nodes["metadatas"], all_nodes["documents"]),
-                key=lambda x: float(x[1].get("combined", 0.0)),
-                reverse=True,
-            )[:top_k]
-            return [
-                (1, {"node": nid, "metadata": meta, "code": doc})
-                for nid, meta, doc in fallback_nodes
-            ]
-        candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[: top_k * 2]
-        top_nodes = []
-        seen_nodes = set()
-        logger.info(f"Found {len(candidates_sorted)} candidates")
-        for i in range(0, len(candidates_sorted), batch_size):
-            batch = candidates_sorted[i : i + batch_size]
-            scores = await _score_batch(question, batch, code_snippet_limit)
-            logger.debug(f"LLM scores: {scores}")
-            for s in scores:
-                node_id = s.get("id")
-                score = int(s.get("score", 0))
-                if score >= 3:
-                    node_tuple = next((c for c in batch if c[0] == node_id), None)
-                    if node_tuple:
-                        _, metadata, doc, hybrid_score = node_tuple
-                        if node_id not in seen_nodes:
-                            top_nodes.append(
-                                (
-                                    hybrid_score + score * 100,
-                                    {"node": node_id, "metadata": metadata, "code": doc},
-                                )
-                            )
-                            seen_nodes.add(node_id)
-
-        top_nodes = sorted(top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
-
-        final_top_nodes = top_nodes.copy()
-        seen_nodes = set(n[1]["node"] for n in top_nodes)
-        for score, node_data in top_nodes:
-            neighbor_nodes = expand_node_with_neighbors(
-                node_data["node"], node_data["metadata"], collection, seen_nodes, max_neighbors
-            )
-            for score_offset, neighbor_data in neighbor_nodes:
-                if neighbor_data["node"] not in seen_nodes:
-                    final_top_nodes.append((score_offset, neighbor_data))
-                    seen_nodes.add(neighbor_data["node"])
-
-        for _, node_data in top_nodes:
-            if node_data["metadata"].get("kind") == "CLASS":
-                class_name = node_data["metadata"].get("label")
-                usage_nodes = find_usage_nodes(
-                    collection, class_name, max_results=max_usage_nodes_for_context
+        if score >= 3 and node_id not in seen_nodes:
+            top_nodes.append(
+                (
+                    hybrid_score + score * 100,
+                    {"node": node_id, "metadata": metadata, "code": doc},
                 )
-                for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
-                    if u_node_id in seen_nodes:
-                        continue
-                    final_top_nodes.append(
-                        (u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc})
-                    )
-                    seen_nodes.add(u_node_id)
+            )
+            seen_nodes.add(node_id)
 
-        logger.info(f"Found {len(final_top_nodes)} top_nodes")
-        logger.debug(f"TOP NODES from general_question: {[n[1]['node'] for n in final_top_nodes]}")
+    top_nodes = sorted(top_nodes, key=lambda x: x[0], reverse=True)[:top_k]
+    logger.info(f"Top nodes length: {len(top_nodes)}")
 
-        category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
-        if hasattr(category, "value"):
-            category = category.value
-        confidence = getattr(analysis, "confidence", 0.5)
-
-        full_context = build_context(
-            final_top_nodes, category, confidence, question=question, target_method=None
+    final_top_nodes = top_nodes.copy()
+    seen_nodes = set(n[1]["node"] for n in top_nodes)
+    for score, node_data in top_nodes:
+        neighbor_nodes = expand_node_with_neighbors(
+            node_data["node"], node_data["metadata"], collection, seen_nodes, max_neighbors
         )
+        for score_offset, neighbor_data in neighbor_nodes:
+            if neighbor_data["node"] not in seen_nodes:
+                final_top_nodes.append((score_offset, neighbor_data))
+                seen_nodes.add(neighbor_data["node"])
 
-        end_time = time.time()
-        elapsed_ms = (end_time - start_time) * 1000
-        logger.debug(f"Completed in: {elapsed_ms:.1f}ms")
-        return final_top_nodes, full_context or "<NO CONTEXT FOUND>"
+    for _, node_data in top_nodes:
+        if node_data["metadata"].get("kind") == "CLASS":
+            class_name = node_data["metadata"].get("label")
+            usage_nodes = find_usage_nodes(
+                collection, class_name, max_results=max_usage_nodes_for_context
+            )
+            for u_score, u_node_id, u_doc, u_metadata in usage_nodes:
+                if u_node_id in seen_nodes:
+                    continue
+                final_top_nodes.append(
+                    (u_score - 1, {"node": u_node_id, "metadata": u_metadata, "code": u_doc})
+                )
+                seen_nodes.add(u_node_id)
+
+    logger.debug(f"Found {len(final_top_nodes)} top_nodes")
+    logger.debug(f"TOP NODES from general_question: {[n[1]['node'] for n in final_top_nodes]}")
+
+    category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
+    if hasattr(category, "value"):
+        category = category.value
+    confidence = getattr(analysis, "confidence", 0.5)
+
+    full_context = build_context(
+        final_top_nodes, category, confidence, question=question, target_method=None
+    )
+
+    end_time = time.time()
+    elapsed_ms = (end_time - start_time) * 1000
+    logger.debug(f"Completed in: {elapsed_ms:.1f}ms")
+    return final_top_nodes, full_context or "<NO CONTEXT FOUND>"

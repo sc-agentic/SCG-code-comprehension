@@ -30,7 +30,7 @@ def get_embedding_inputs(pairs: List[Tuple[str, str]], question: str) -> List[st
 
 
 def query_embeddings(
-    collection: Any, query_embeddings: List[Any], embeddings_input: List[str]
+        collection: Any, query_embeddings: List[Any], embeddings_input: List[str], pairs: List[Tuple[str, str]]
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Queries ChromaDB with embeddings and returns results.
@@ -56,6 +56,7 @@ def query_embeddings(
             query_embeddings=[emb],
             n_results=1,
             include=["embeddings", "metadatas", "documents", "distances"],
+            where={"kind": pairs[i][0]}
         )
         for j in range(len(query_result["ids"][0])):
             score = 1 - query_result["distances"][0][j]
@@ -139,6 +140,14 @@ def identify_target_entity(unique_results: List[Tuple[float, Dict[str, Any]]]) -
                 return part
     return None
 
+
+def is_child_of(node_id_parent, node_id_candidate):
+    for sep in ["#", "?"]:
+        if sep in node_id_candidate:
+            parent, _ = node_id_candidate.split(sep, 1)
+            if parent == node_id_parent:
+                return True
+    return node_id_candidate == node_id_parent
 
 def expand_usage_results(
     unique_results: List[Tuple[float, Dict[str, Any]]],
@@ -227,10 +236,9 @@ def expand_definition_neighbors(
                 if NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types:
                     continue
 
-            pattern = re.escape(node_id) + r"(\.|$|\?)"
             if (
                 parent_kind == "CLASS"
-                and re.match(pattern, str(neighbor_id))
+                and is_child_of(node_id, neighbor_id)
             ) or neighbor_id in added_nodes:
                 continue
 
