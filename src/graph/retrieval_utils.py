@@ -30,7 +30,7 @@ def get_embedding_inputs(pairs: List[Tuple[str, str]], question: str) -> List[st
 
 
 def query_embeddings(
-    collection: Any, query_embeddings: List[Any], embeddings_input: List[str]
+        collection: Any, query_embeddings: List[Any], embeddings_input: List[str], pairs: List[Tuple[str, str]]
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Queries ChromaDB with embeddings and returns results.
@@ -56,6 +56,7 @@ def query_embeddings(
             query_embeddings=[emb],
             n_results=1,
             include=["embeddings", "metadatas", "documents", "distances"],
+            where={"kind": pairs[i][0]}
         )
         for j in range(len(query_result["ids"][0])):
             score = 1 - query_result["distances"][0][j]

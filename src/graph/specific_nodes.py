@@ -67,7 +67,7 @@ async def get_specific_nodes_context(
         get_graph_model()
 
         query_embeddings_var = generate_embeddings_graph(embeddings_input, model_name)
-        all_results = query_embeddings(collection, query_embeddings_var, embeddings_input)
+        all_results = query_embeddings(collection, query_embeddings_var, embeddings_input, pairs)
         reranked_results = rerank_results(question, all_results, analysis)
         logger.debug(f"Reranked {len(reranked_results)} results")
         unique_results = deduplicate_results(reranked_results, len(embeddings_input) * top_k)
