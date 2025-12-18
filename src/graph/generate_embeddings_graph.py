@@ -174,4 +174,4 @@ def node_to_text(data: Dict[str, Any], project_root: Path) -> Dict[str, str]:
         else extract_code_from_file(file_path, location)
     )
 
-    return {"text": f"{kind} {label}", "kind": kind, "label": label, "code": code}
+    return {"text": f"{kind} {label}", "kind": kind, "label": label, "code": code, "uri": uri}

@@ -37,26 +37,26 @@ async def extract_key_value_pairs_simple(question: str) -> List[Tuple[str, str]]
     classification_prompt = f"""
     User question: "{question_lower}"
     Your task:
-    1. Extract pairs of (Node Type, Node Name) from the question
-    2. Node Type must be one of: ["CLASS", "METHOD", "VARIABLE", "CONSTRUCTOR", "VALUE"],
-     don't pick other option. It is INVALID.
-    3. For tests assume that node type is: CLASS
-    4. Return ONLY a valid JSON array of objects with keys "type" and "name"
+    1. Extract pairs of (Node Type, Node Name) from the question.
+    2. Node Type must be one of: ["CLASS", "METHOD", "VARIABLE", "CONSTRUCTOR", "VALUE"]. Any other types are INVALID.
+    3. Only extract nodes that are explicitly mentioned in the question. Do NOT guess or invent anything.
+    4. Return ONLY a valid JSON array of objects with keys "type" and "name".
+    5. Always return a JSON array, even if it's empty.
+    6. If no valid nodes are found, return an empty array: []
 
-    Example output format:
+    Example:
+    Question: "What methods does the User class have?"
+    Output:
     [
-      {{"type": "CLASS", "name": "User"}},
-      {{"type": "METHOD", "name": "findById"}}
+      {{ "type": "CLASS", "name": "User" }}
     ]
-    - Return ONLY valid JSON, no comments, no explanations, no markdown
-    - Always return a JSON array, even if there's only 1 element
-    - If no pairs found, return empty array: []
 
-    Return your JSON without ```json only array of pairs
+    - Return ONLY valid JSON array, no comments, no explanations, no markdown.
     """
 
     answer = await call_llm(classification_prompt)
     logger.debug(f"LLM extracted pairs: {answer}")
+    answer = re.sub(r"^```json\s*|```$", "", answer.strip(), flags=re.MULTILINE)
     try:
         data = json.loads(answer)
         logger.debug(f"Data: {data}")

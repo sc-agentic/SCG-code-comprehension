@@ -105,13 +105,13 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
         Exception: If embedding generation or data insertion into the Chroma collection fails.
     """
     scg = load_gdf(scg_test)
-    ccn = load_gdf(ccn_test)
+    # ccn = load_gdf(ccn_test)
     importance_scores = extract_scores(partition)
 
-    reverse_ccn_map = defaultdict(list)
-    for node_id in ccn.nodes():
-        for neighbor in ccn.neighbors(node_id):
-            reverse_ccn_map[neighbor].append(node_id)
+    # reverse_ccn_map = defaultdict(list)
+    # for node_id in ccn.nodes():
+    #     for neighbor in ccn.neighbors(node_id):
+    #         reverse_ccn_map[neighbor].append(node_id)
 
     nodes_info = []
     texts_for_embedding = []
@@ -124,6 +124,7 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
                 "kind": node_text["kind"],
                 "label": node_text["label"],
                 "code": node_text["code"],
+                "uri": node_text["uri"]
             }
         )
         texts_for_embedding.append(node_text["text"].lower())
@@ -138,24 +139,26 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
     for info, emb in zip(nodes_info, embeddings):
         node_id = info["node_id"]
         scg_neighbors = set(scg.neighbors(node_id)) if scg.has_node(node_id) else set()
-        used_by = set(reverse_ccn_map[node_id]) if node_id in reverse_ccn_map else set()
+        #used_by = set(reverse_ccn_map[node_id]) if node_id in reverse_ccn_map else set()
 
-        extra_related = set()
-        if info["kind"] == "METHOD":
-            class_id = node_id.split("(")[0].rsplit(".", 1)[0]
-            if class_id in reverse_ccn_map:
-                extra_related.update(reverse_ccn_map[class_id])
+        # extra_related = set()
+        # if info["kind"] == "METHOD":
+        #     class_id = node_id.split("(")[0].rsplit(".", 1)[0]
+        #     if class_id in reverse_ccn_map:
+        #         extra_related.update(reverse_ccn_map[class_id])
+        #
 
         related_entities = sorted(
-            scg_neighbors.union(used_by).union(extra_related),
+            scg_neighbors,
             key=lambda nid: importance_scores["combined"].get(nid, 0.0),
             reverse=True,
         )
 
         metadata = {
             "node": node_id,
-            "kind": info["kind"],
+            "kind": info["kind"].upper(),
             "label": info["label"],
+            "uri": info["uri"],
             "related_entities": json.dumps(related_entities),
             "loc": importance_scores["loc"].get(node_id, 0.0),
             "out_degree": importance_scores["out-degree"].get(node_id, 0.0),
@@ -201,5 +204,5 @@ if __name__ == "__main__":
 
     project_path = Path(args.project).resolve()
     program_graph_folder = Path(__file__).parent.parent.parent / "data/graph"
-    run_scg_cli(project_path, program_graph_folder)
+    #run_scg_cli(project_path, program_graph_folder)
     generate_embeddings_graph_main(project_path)

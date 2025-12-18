@@ -56,7 +56,7 @@ def query_embeddings(
             query_embeddings=[emb],
             n_results=1,
             include=["embeddings", "metadatas", "documents", "distances"],
-            where={"kind": pairs[i][0]}
+            where={"kind": pairs[i][0].upper()}
         )
         for j in range(len(query_result["ids"][0])):
             score = 1 - query_result["distances"][0][j]
@@ -216,38 +216,34 @@ def expand_definition_neighbors(
         if not related_entities:
             continue
 
-        try:
-            neighbors = collection.get(ids=related_entities, include=["metadatas", "documents"])
-        except Exception as e:
-            logger.warning(f"ChromaDB get failed (likely telemetry): {e}")
-            neighbors = {"ids": [], "metadatas": [], "documents": []}
-
         neighbors_added = 0
-        logger.info(f"Neighbors: {related_entities_str}")
-        for j in range(len(neighbors["ids"])):
+
+        neighbors = collection.get(ids=related_entities, include=["metadatas", "documents"])
+
+        combined_neighbors = list(
+            zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])
+        )
+        combined_neighbors = sorted(
+            combined_neighbors,
+            key=lambda x: x[1].get("combined", 0),
+            reverse=True
+        )
+
+        for neighbor_id, neighbor_metadata, neighbor_doc in combined_neighbors:
             if neighbors_added >= max_neighbors:
                 break
-            neighbor_id = neighbors["ids"][j]
-            neighbor_metadata = neighbors["metadatas"][j]
+
             neighbor_kind = neighbor_metadata.get("kind", "")
-            neighbor_doc = neighbors["documents"][j] or ""
 
-            if NeighborTypeEnum.ANY not in neighbor_types:
-                if NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types:
-                    continue
+            if NeighborTypeEnum.ANY not in neighbor_types and NeighborTypeEnum[
+                neighbor_kind.upper()] not in neighbor_types:
+                continue
 
-            if (
-                parent_kind == "CLASS"
-                and is_child_of(node_id, neighbor_id)
-            ) or neighbor_id in added_nodes:
+            if (parent_kind == "CLASS" and is_child_of(node_id, neighbor_id)) or neighbor_id in added_nodes:
                 continue
 
             top_nodes.append(
-                (
-                    node_score,
-                    {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc},
-                )
-            )
+                (node_score, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc or ""}))
             added_nodes.add(neighbor_id)
             neighbors_added += 1
 

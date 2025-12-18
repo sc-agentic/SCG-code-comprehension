@@ -95,6 +95,7 @@ async def _score_node(
         return []
 
 
+# Wywalić - exapand_definition_neighbors z retrieval_utils to to samo, tylko trzeba podać ANY
 def expand_node_with_neighbors(
     node_id: str,
     metadata: Dict[str, Any],
@@ -133,12 +134,19 @@ def expand_node_with_neighbors(
         return neighbors_data
 
     neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
-    for j in range(len(neighbors["ids"])):
-        neighbor_id = neighbors["ids"][j]
+
+    combined_neighbors = list(
+        zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])
+    )
+    combined_neighbors = sorted(
+        combined_neighbors,
+        key=lambda x: x[1].get("combined", 0),
+        reverse=True
+    )
+
+    for neighbor_id, neighbor_metadata, neighbor_doc in combined_neighbors:
         if neighbor_id in seen_nodes:
             continue
-        neighbor_metadata = neighbors["metadatas"][j]
-        neighbor_doc = neighbors["documents"][j] or ""
         if (
             metadata.get("kind") == "CLASS"
                 and is_child_of(node_id, neighbor_id)

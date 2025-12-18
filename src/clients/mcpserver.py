@@ -87,7 +87,7 @@ async def ask_specific_nodes(
 
     **Use when:**
     - Question contains a proper name: "LoginController", "authenticate", "userRepository" and type: CLASS,METHOD etc. If type is missing you can try to guess it based on
-     whole conversation and name of node
+     whole conversation and name of node. Change question to include that type in question alongside name.
     - Question asks: "Describe class X", "What does method Y do?", "What fields does class Z have?"
     - You want to find a specific element by name
 
@@ -108,7 +108,7 @@ async def ask_specific_nodes(
       "question": "exact user question",
       "top_k": 3-5,
       "max_neighbors": 1-8,
-      "neighbor_types": ["CLASS|METHOD|VARIABLE|CONSTRUCTOR|ANY"]
+      "neighbor_types": ["CLASS|METHOD||CONSTRUCTOR|INTERFACE|ENUM|TYPE_PARAMETER|ANY"]
     }
     ```
 
@@ -370,6 +370,67 @@ async def ask_general_question(question: str, top_nodes: int, max_neighbors: int
     params = {"top_nodes": top_nodes, "max_neighbors": max_neighbors}
     return await call_fastapi("ask_general_question", question, params)
 
+
+@mcp.tool()
+async def list_related_entities(question: str, limit: int, neighbor_types: List[str]) -> str:
+    """
+    #REMINDER: IF YOU HAVE CONTEXT (CODE) OF NODE FROM ANOTHER QUERY AND YOU CAN GIVE ANSWER DO NOT ASK ANOTHER QUESTION.
+
+    Query to get all classed/methods etc. connected to node in question.
+
+    **Use when:**
+    - There is a specific node type and name in user's question.
+    - User wants to list entities connected to node in question.
+
+    **DON'T use when:**
+    - Question doesn't contain a specific class/method name
+    - Question about ranking/top X
+    - Question is about describing connected entities, this only list them.
+
+    **Examples:**
+
+    - "What are neighbors of class X"
+    - "To what classes is class X connected"
+
+    **Parameters:**
+    ```json
+    {
+      "question": "exact user question"(can be changed minimally),
+      "limit": number/"all",
+      "neighbor_types": ["CLASS|METHOD||CONSTRUCTOR|INTERFACE|ENUM|TYPE_PARAMETER|ANY"]
+    }
+    ```
+
+    **Choosing limit:**
+    `Limit` represents how many neighbors related to node user wants to get.
+
+    - Question: "What are neighbors of class X" -> not specified so go with "all"
+    - Question: "To what classes is class X connected" -> not specified so go with "all"
+    - Question: "What are 5 most important classes connected to method X" -> specified so go with 5
+    - Question: "What are all classes related to class Y" -> all classes so go with "all"
+
+    **neighbor_types:**
+    `neighbor_types` specifies the list of **TYPES OF NEIGHBOR NODES** to fetch based on user question.
+
+    Available options are: CLASS,METHOD,VARIABLE,CONSTRUCTOR,ANY.
+
+    - **HOW TO CHOOSE**:
+      - Question: "What are 5 most important classes connected to method X?"" - `neighbor_types` is specified in question so it is ["CLASS"]
+      - Question: "What are neighbors of class X?" - `neighbor_types` is not specified so go with ["ANY"]
+      - Question: "What are 5 most important classes or methods connected to method X?" - `neighbor_type` is specified - it is ["CLASS", "METHOD"]
+      - Unsure what to choose - choose ["ANY"]
+
+
+    CHECKLIST BEFORE CALLING:
+    ☐ Question passed exactly as user asked? (minimal changes only)
+    ☐ Question contains specific element names? (not a general question)
+    ☐ limit is appropriate to question?
+    ☐ neighbor_types are TYPES (CLASS/METHOD/etc.)?
+    ☐ neighbor_types match what user is asking about?
+    """
+    logger.info("MCP list related_entities question: {}".format(question))
+    params = {"limit": limit, "neighbor_types": neighbor_types}
+    return await call_fastapi("list_related_entities", question, params)
 
 if __name__ == "__main__":
     try:

@@ -26,41 +26,61 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     if not code:
         return ""
 
-    if kind not in ["CLASS", "INTERFACE"]:
+    if kind not in ["CLASS", "INTERFACE", "METHOD"]:
         return code[:MAX_CODE_PREVIEW_CHARS]
 
     definition_lines = []
     lines = code.split("\n")
     modifiers = ["public ", "private ", "protected "]
+    scala_mode = False
+
     if "." in node_id:
         class_name = node_id.split(".")[-1]
+    elif "/" in node_id:
+        class_name = node_id.split("/")[-1].replace("#", "")
+        scala_mode = True
     else:
         class_name = node_id
+
     for line in lines:
         line_clean = line.strip()
-        line_clean = line_clean.lstrip("/* ").strip()
-        if not line_clean or line_clean.startswith("//") or line_clean.startswith("*"):
+        line_clean = re.sub(r'^/\*\*?\s*', '', line_clean)
+        line_clean = re.sub(r'\*/', '', line_clean)
+        if not line_clean or line_clean.startswith("//"):
             continue
         if line_clean.startswith("@"):
             definition_lines.append(line_clean)
             continue
-        if "class " in line_clean or "interface " in line_clean:
+        if ("class " in line_clean or "interface " in line_clean or
+                "trait " in line_clean or "object " in line_clean):
             definition_lines.append(line_clean)
             continue
-        has_modifier = any(line_clean.startswith(mod) for mod in modifiers)
-        if not has_modifier:
-            continue
-        if "(" not in line_clean and "=" not in line_clean:
-            definition_lines.append(line_clean)
-            continue
-        if class_name + "(" in line_clean:
-            definition_lines.append(line_clean)
-            continue
-        if "(" in line_clean and ")" in line_clean:
-            signature = line_clean.rstrip("{").strip()
-            if not signature.endswith(";"):
-                signature += ";"
-            definition_lines.append(signature)
+        if scala_mode:
+            line_no_comments = re.sub(r'^\*/?\s*', '', line_clean).strip()
+            if re.match(r'^(abstract\s+class|class|trait|object)\b', line_no_comments):
+                definition_lines.append(line_clean)
+                continue
+            if re.match(r'^def(\s|this\()', line_no_comments):
+                signature = line_clean.rstrip("{").strip()
+                if not signature.endswith(";"):
+                    signature += ";"
+                definition_lines.append(signature)
+                continue
+        else:
+            has_modifier = any(line_clean.startswith(mod) for mod in modifiers)
+            if not has_modifier:
+                continue
+            if "(" not in line_clean and "=" not in line_clean:
+                definition_lines.append(line_clean)
+                continue
+            if class_name + "(" in line_clean:
+                definition_lines.append(line_clean)
+                continue
+            if "(" in line_clean and ")" in line_clean:
+                signature = line_clean.rstrip("{").strip()
+                if not signature.endswith(";"):
+                    signature += ";"
+                definition_lines.append(signature)
 
     return "\n".join(definition_lines[:MAX_DEFINITION_LINES])
 

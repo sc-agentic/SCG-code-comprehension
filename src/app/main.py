@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from clients.chroma_client import get_collection
 from graph.general_query import get_general_nodes_context
+from graph.related_entities import get_related_entities
 from graph.specific_nodes import get_specific_nodes_context
 from graph.top_nodes import get_top_nodes_context
 from src.core.config import (
@@ -298,6 +299,11 @@ async def ask_top_nodes(req: AskRequest):
 @app.post("/ask_general_question")
 async def ask_general_question(req: AskRequest):
     return await retrieve_context(req.question, get_general_nodes_context, req.params)
+
+
+@app.post("/list_related_entities")
+async def list_related_entities(req: AskRequest):
+    return await retrieve_context(req.question, get_related_entities, req.params)
 
 
 async def retrieve_context(question: str, node_func, params: dict):

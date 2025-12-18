@@ -342,7 +342,6 @@ def build_context(
                 or code.startswith("<")
         ):
             return False
-
         max_sections = get_max_sections_for_category(category)
         if section_counts[section_label] >= max_sections:
             return False
