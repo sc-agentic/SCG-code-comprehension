@@ -83,6 +83,7 @@ class IntentAnalyzer:
                     "najważniejsze klasy", "główne klasy", "centralne klasy",
                     "największe klasy", "najbardziej połączone klasy",
                     "najmniej ważne klasy", "least", "smallest classes",
+                    "list", "show"
                 ],
                 "patterns": [
                     r"najważniejsz.*klas", r"główn.*klas", r"centraln.*klas",
@@ -90,7 +91,7 @@ class IntentAnalyzer:
                     r"most\s+(connected|important|significant|central|biggest|dominant).*class",
                     r"key\s+class", r"core\s+class", r"main\s+class", r"najmniejsz.*klas",
                 ],
-                "weight": 1.2,
+                "weight": 2.0,
             },
         }
         self.context_limits = {

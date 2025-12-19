@@ -1,7 +1,8 @@
 import json
-import re
 from typing import Any, Dict, List, Optional, Set, Tuple
+
 from loguru import logger
+
 from graph.NeighborTypeEnum import NeighborTypeEnum
 from src.graph.usage_finder import find_usage_nodes
 
@@ -23,7 +24,7 @@ def get_embedding_inputs(pairs: List[Tuple[str, str]], question: str) -> List[st
     """
     embeddings_input = []
     for key, value in pairs:
-        embeddings_input.append(f"{key} {value}" if key else value)
+        embeddings_input.append(f"{key.lower()} {value.lower()}" if key else value)
     if not embeddings_input:
         embeddings_input = [question]
     return embeddings_input
@@ -203,22 +204,26 @@ def expand_definition_neighbors(
         metadata = node_data["metadata"]
         parent_kind = metadata.get("kind", "")
 
-        related_entities_str = metadata.get("related_entities", "")
-        try:
-            related_entities = (
-                json.loads(related_entities_str)
-                if isinstance(related_entities_str, str)
-                else related_entities_str
-            )
-        except (json.JSONDecodeError, TypeError):
-            related_entities = []
+        related_entities_raw = metadata.get("related_entities")
 
-        if not related_entities:
+        if not related_entities_raw:
             continue
+
+        related_entities = json.loads(related_entities_raw)
+
+        neighbors_to_fetch = []
+        seen = set()
+
+        for entity_id, _ in related_entities:
+            if entity_id not in seen:
+                seen.add(entity_id)
+                neighbors_to_fetch.append(entity_id)
 
         neighbors_added = 0
 
-        neighbors = collection.get(ids=related_entities, include=["metadatas", "documents"])
+        logger.debug(f"Neighbors to fetch: {neighbors_to_fetch}")
+
+        neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
 
         combined_neighbors = list(
             zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])

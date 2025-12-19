@@ -15,3 +15,4 @@ class NeighborTypeEnum(Enum):
     ENUM = "ENUM"
     ANY = "ANY"
     OBJECT = "OBJECT"
+    TYPE = "TYPE"

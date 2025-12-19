@@ -1,8 +1,11 @@
 import time
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple
+
 from loguru import logger
+
 from core.models import IntentAnalysis, IntentCategory
 from graph.NeighborTypeEnum import NeighborTypeEnum
+from graph.model_cache import get_graph_model
 from graph.reranking import rerank_results
 from graph.retrieval_utils import (
     deduplicate_results,
@@ -10,7 +13,6 @@ from graph.retrieval_utils import (
     expand_usage_results,
     expand_definition_neighbors,
 )
-from graph.model_cache import get_graph_model
 
 
 async def get_specific_nodes_context(
@@ -42,10 +44,10 @@ async def get_specific_nodes_context(
     if isinstance(neighbor_types, str):
         neighbor_types = [neighbor_types]
     neighbor_types = [NeighborTypeEnum[type.upper()] for type in neighbor_types]
-    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}, Neighbor types: {neighbor_types}")
+    pairs = params.get("pairs", [])
+    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}, Neighbor types: {neighbor_types}, pairs: {pairs}")
     try:
         from src.graph.generate_embeddings_graph import generate_embeddings_graph
-        from src.graph.retriver import extract_key_value_pairs_simple
         from graph.retrieval_utils import query_embeddings, get_embedding_inputs
 
         try:
@@ -54,9 +56,6 @@ async def get_specific_nodes_context(
 
             def build_context(nodes, category, confidence, question="", target_method=None):
                 return "\n\n".join([node[1]["code"] for node in nodes[:5] if node[1]["code"]])
-
-        pairs = await extract_key_value_pairs_simple(question)
-        pairs = [(t.lower(), n.lower()) for t, n in pairs]
 
         logger.debug(f"Question: '{question}'")
         logger.debug(f"Extracted pairs: {pairs}")
@@ -104,11 +103,5 @@ async def get_specific_nodes_context(
         return top_nodes, full_context or "<NO CONTEXT FOUND>"
 
     except Exception as e:
-        logger.warning(f"Fallback do oryginalnej funkcji: {e}")
-        from src.graph.retriver import similar_node
-
-        return similar_node(question, model_name, top_k)
-
-
-_general_fallback_cache: Optional[str] = None
-_cache_timestamp: float = 0
+        logger.warning(f"Error occured during retrieving specific nodes: {e}")
+        return None
