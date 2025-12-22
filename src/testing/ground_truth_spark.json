@@ -1,0 +1,853 @@
+{
+  "test_suite": "RAG System - Spark Project",
+  "version": "2.0",
+  "created": "2025-11-12",
+  "description": "Test suite with actual code fragments in ground_truth_contexts",
+  "questions": [
+    {
+      "id": "Q001",
+      "question": "Describe ContextWaiter class",
+      "category": "definition",
+      "ground_truth_contexts": [
+        "private[streaming] class ContextWaiter { private val lock = new ReentrantLock() private val condition = lock.newCondition() // Guarded by \"lock\" private var error: Throwable = null // Guarded by \"lock\" private var stopped: Boolean = false def notifyError(e: Throwable): Unit = { lock.lock() try { error = e condition.signalAll() } finally { lock.unlock() } } def notifyStop(): Unit = { lock.lock() try { stopped = true condition.signalAll() } finally { lock.unlock() } } /** * Return `true` if it's stopped; or throw the reported error if `notifyError` has been called; or * `false` if the waiting time detectably elapsed before return from the method. */ def waitForStopOrError(timeout: Long = -1): Boolean = { lock.lock() try { if (timeout < 0) { while (!stopped && error == null) { condition.await() } } else { var nanos = TimeUnit.MILLISECONDS.toNanos(timeout) while (!stopped && error == null && nanos > 0) { nanos = condition.awaitNanos(nanos) } } // If already had error, then throw it if (error != null) throw error // already stopped or timeout stopped } finally { lock.unlock() } } }",
+        "*/ class StreamingContext private[streaming] ( _sc: SparkContext, _cp: Checkpoint, _batchDur: Duration ) extends Logging { /** * Create a StreamingContext using an existing SparkContext. * @param sparkContext existing SparkContext * @param batchDuration the time interval at which streaming data will be divided into batches */ def this(sparkContext: SparkContext, batchDuration: Duration) = { this(sparkContext, null, batchDuration) } /** * Create a StreamingContext by providing the configuration necessary for a new SparkContext. * @param conf a org.apache.spark.SparkConf object specifying Spark parameters * @param batchDuration the time interval at which streaming data will be divided into batches */ def this(conf: SparkConf, batchDuration: Duration) = { this(StreamingContext.createNewSparkContext(conf), null, batchDuration) } /** * Create a StreamingContext by providing the details necessary for creating a new SparkContext. * @param master cluster URL to connect to (e.g. mesos://host:port, spark://host:port, local[4]). * @param appName a name for your job, to display on the cluster web UI * @param batchDuration the time interval at which streaming data will be divided into batches */ def this( master: String, appName: String, batchDuration: Duration, sparkHome: String = null, jars: Seq[String] = Nil, environment: Map[String, String] = Map()) = { this(StreamingContext.createNewSparkContext(master, appName, sparkHome, jars, environment), null, batchDuration) } /** * Recreate a StreamingContext from a checkpoint file. * @param path Path to the directory that was specified as the checkpoint directory * @param hadoopConf Optional, configuration object if necessary for reading from * HDFS compatible filesystems */ def this(path: String, hadoopConf: Configuration) = this(null, CheckpointReader.read(path, new SparkConf(), hadoopConf).orNull, null) /** * Recreate a StreamingContext from a checkpoint file. * @param path Path to the directory that was specified as the checkpoint directory */ def this(path: String) = this(path, SparkHadoopUtil.get.conf) /** * Recreate a StreamingContext from a checkpoint file using an existing SparkContext. * @param path Path to the directory that was specified as the checkpoint directory * @param sparkContext Existing SparkContext */ def this(path: String, sparkContext: SparkContext) = { this( sparkContext, CheckpointReader.read(path, sparkContext.conf, sparkContext.hadoopConfiguration).orNull, null) } require(_sc != null || _cp != null, \"Spark Streaming cannot be initialized with both SparkContext and checkpoint as null\") private[streaming] val isCheckpointPresent: Boolean = _cp != null private[streaming] val sc: SparkContext = { if (_sc != null) { _sc } else if (isCheckpointPresent) { SparkContext.getOrCreate(_cp.createSparkConf()) } else { throw new SparkException(\"Cannot create StreamingContext without a SparkContext\") } } if (sc.conf.get(\"spark.master\") == \"local\" || sc.conf.get(\"spark.master\") == \"local[1]\") { logWarning(\"spark.master should be set as local[n], n > 1 in local mode if you have receivers\" + \" to get data, otherwise Spark jobs will not get resources to process the received data.\") } private[streaming] val conf = sc.conf private[streaming] val env = sc.env private[streaming] val graph: DStreamGraph = { if (isCheckpointPresent) { _cp.graph.setContext(this) _cp.graph.restoreCheckpointData() _cp.graph } else { require(_batchDur != null, \"Batch duration for StreamingContext cannot be null\") val newGraph = new DStreamGraph() newGraph.setBatchDuration(_batchDur) newGraph } } private val nextInputStreamId = new AtomicInteger(0) private[streaming] var checkpointDir: String = { if (isCheckpointPresent) { sc.setCheckpointDir(_cp.checkpointDir) _cp.checkpointDir } else { null } } private[streaming] val checkpointDuration: Duration = { if (isCheckpointPresent) _cp.checkpointDuration else graph.batchDuration } private[streaming] val scheduler = new JobScheduler(this) private[streaming] val waiter = new ContextWaiter private[streaming] val progressListener = new StreamingJobProgressListener(this) private[streaming] val uiTab: Option[StreamingTab] = sparkContext.ui match { case Some(ui) => Some(new StreamingTab(this, ui)) case None => None } /* Initializing a streamingSource to register metrics */ private val streamingSource = new StreamingSource(this) private var state: StreamingContextState = INITIALIZED private val startSite = new AtomicReference[CallSite](null) // Copy of thread-local properties from SparkContext. These properties will be set in all tasks // submitted by this StreamingContext after start. private[streaming] val savedProperties = new AtomicReference[Properties](new Properties) private[streaming] def getStartSite(): CallSite = startSite.get() private var shutdownHookRef: AnyRef = _ conf.getOption(\"spark.streaming.checkpoint.directory\").foreach(checkpoint) /** * Return the associated Spark context */ def sparkContext: SparkContext = sc /** * Set each DStream in this context to remember RDDs it generated in the last given duration. * DStreams remember RDDs only for a limited duration of time and release them for garbage * collection. This method allows the developer to specify how long to remember the RDDs ( * if the developer wishes to query old data outside the DStream computation). * @param duration Minimum duration that each DStream should remember its RDDs */ def remember(duration: Duration): Unit = { graph.remember(duration) } /** * Set the context to periodically checkpoint the DStream operations for driver * fault-tolerance. * @param directory HDFS-compatible directory where the checkpoint data will be reliably stored. * Note that this must be a fault-tolerant file system like HDFS. */ def checkpoint(directory: String): Unit = { if (directory != null) { val path = new Path(directory) val fs = path.getFileSystem(sparkContext.hadoopConfiguration) fs.mkdirs(path) val fullPath = fs.getFileStatus(path).getPath().toString sc.setCheckpointDir(fullPath) checkpointDir = fullPath } else { checkpointDir = null } } private[streaming] def isCheckpointingEnabled: Boolean = { checkpointDir != null } private[streaming] def initialCheckpoint: Checkpoint = { if (isCheckpointPresent) _cp else null } private[streaming] def getNewInputStreamId() = nextInputStreamId.getAndIncrement() /** * Execute a block of code in a scope such that all new DStreams created in this body will * be part of the same scope. For more detail, see the comments in `doCompute`. * * Note: Return statements are NOT allowed in the given body. */ private[streaming] def withScope[U](body: => U): U = sparkContext.withScope(body) /** * Execute a block of code in a scope such that all new DStreams created in this body will * be part of the same scope. For more detail, see the comments in `doCompute`. * * Note: Return statements are NOT allowed in the given body. */ private[streaming] def withNamedScope[U](name: String)(body: => U): U = { RDDOperationScope.withScope(sc, name, allowNesting = false, ignoreParent = false)(body) } /** * Create an input stream with any arbitrary user implemented receiver. * Find more details at https://spark.apache.org/docs/latest/streaming-custom-receivers.html * @param receiver Custom implementation of Receiver */ def receiverStream[T: ClassTag](receiver: Receiver[T]): ReceiverInputDStream[T] = { withNamedScope(\"receiver stream\") { new PluggableInputDStream[T](this, receiver) } } /** * Creates an input stream from TCP source hostname:port. Data is received using * a TCP socket and the receive bytes is interpreted as UTF8 encoded `\\n` delimited * lines. * @param hostname Hostname to connect to for receiving data * @param port Port to connect to for receiving data * @param storageLevel Storage level to use for storing the received objects * (default: StorageLevel.MEMORY_AND_DISK_SER_2) * @see [[socketStream]] */ def socketTextStream( hostname: String, port: Int, storageLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK_SER_2 ): ReceiverInputDStream[String] = withNamedScope(\"socket text stream\") { socketStream[String](hostname, port, SocketReceiver.bytesToLines, storageLevel) } /** * Creates an input stream from TCP source hostname:port. Data is received using * a TCP socket and the receive bytes it interpreted as object using the given * converter. * @param hostname Hostname to connect to for receiving data * @param port Port to connect to for receiving data * @param converter Function to convert the byte stream to objects * @param storageLevel Storage level to use for storing the received objects * @tparam T Type of the objects received (after converting bytes to objects) */ def socketStream[T: ClassTag]( hostname: String, port: Int, converter: (InputStream) => Iterator[T], storageLevel: StorageLevel ): ReceiverInputDStream[T] = { new SocketInputDStream[T](this, hostname, port, converter, storageLevel) } /** * Create an input stream from network source hostname:port, where data is received * as serialized blocks (serialized using the Spark's serializer) that can be directly * pushed into the block manager without deserializing them. This is the most efficient * way to receive data. * @param hostname Hostname to connect to for receiving data * @param port Port to connect to for receiving data * @param storageLevel Storage level to use for storing the received objects * (default: StorageLevel.MEMORY_AND_DISK_SER_2) * @tparam T Type of the objects in the received blocks */ def rawSocketStream[T: ClassTag]( hostname: String, port: Int, storageLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK_SER_2 ): ReceiverInputDStream[T] = withNamedScope(\"raw socket stream\") { new RawInputDStream[T](this, hostname, port, storageLevel) } /** * Create an input stream that monitors a Hadoop-compatible filesystem * for new files and reads them using the given key-value types and input format. * Files must be written to the monitored directory by \"moving\" them from another * location within the same file system. File names starting with . are ignored. * @param directory HDFS directory to monitor for new file * @tparam K Key type for reading HDFS file * @tparam V Value type for reading HDFS file * @tparam F Input format for reading HDFS file */ def fileStream[ K: ClassTag, V: ClassTag, F <: NewInputFormat[K, V]: ClassTag ] (directory: String): InputDStream[(K, V)] = { new FileInputDStream[K, V, F](this, directory) } /** * Create an input stream that monitors a Hadoop-compatible filesystem * for new files and reads them using the given key-value types and input format. * Files must be written to the monitored directory by \"moving\" them from another * location within the same file system. * @param directory HDFS directory to monitor for new file * @param filter Function to filter paths to process * @param newFilesOnly Should process only new files and ignore existing files in the directory * @tparam K Key type for reading HDFS file * @tparam V Value type for reading HDFS file * @tparam F Input format for reading HDFS file */ def fileStream[ K: ClassTag, V: ClassTag, F <: NewInputFormat[K, V]: ClassTag ] (directory: String, filter: Path => Boolean, newFilesOnly: Boolean): InputDStream[(K, V)] = { new FileInputDStream[K, V, F](this, directory, filter, newFilesOnly) } /** * Create an input stream that monitors a Hadoop-compatible filesystem * for new files and reads them using the given key-value types and input format. * Files must be written to the monitored directory by \"moving\" them from another * location within the same file system. File names starting with . are ignored. * @param directory HDFS directory to monitor for new file * @param filter Function to filter paths to process * @param newFilesOnly Should process only new files and ignore existing files in the directory * @param conf Hadoop configuration * @tparam K Key type for reading HDFS file * @tparam V Value type for reading HDFS file * @tparam F Input format for reading HDFS file */ def fileStream[ K: ClassTag, V: ClassTag, F <: NewInputFormat[K, V]: ClassTag ] (directory: String, filter: Path => Boolean, newFilesOnly: Boolean, conf: Configuration): InputDStream[(K, V)] = { new FileInputDStream[K, V, F](this, directory, filter, newFilesOnly, Option(conf)) } /** * Create an input stream that monitors a Hadoop-compatible filesystem * for new files and reads them as text files (using key as LongWritable, value * as Text and input format as TextInputFormat). Files must be written to the * monitored directory by \"moving\" them from another location within the same * file system. File names starting with . are ignored. * The text files must be encoded as UTF-8. * * @param directory HDFS directory to monitor for new file */ def textFileStream(directory: String): DStream[String] = withNamedScope(\"text file stream\") { fileStream[LongWritable, Text, TextInputFormat](directory).map(_._2.toString) } /** * Create an input stream that monitors a Hadoop-compatible filesystem * for new files and reads them as flat binary files, assuming a fixed length per record, * generating one byte array per record. Files must be written to the monitored directory * by \"moving\" them from another location within the same file system. File names * starting with . are ignored. * * @param directory HDFS directory to monitor for new file * @param recordLength length of each record in bytes * * @note We ensure that the byte array for each record in the * resulting RDDs of the DStream has the provided record length. */ def binaryRecordsStream( directory: String, recordLength: Int): DStream[Array[Byte]] = withNamedScope(\"binary records stream\") { val conf = _sc.hadoopConfiguration conf.setInt(FixedLengthBinaryInputFormat.RECORD_LENGTH_PROPERTY, recordLength) val br = fileStream[LongWritable, BytesWritable, FixedLengthBinaryInputFormat]( directory, FileInputDStream.defaultFilter: Path => Boolean, newFilesOnly = true, conf) br.map { case (k, v) => val bytes = v.copyBytes() require(bytes.length == recordLength, \"Byte array does not have correct length. \" + s\"${bytes.length} did not equal recordLength: $recordLength\") bytes } } /** * Create an input stream from a queue of RDDs. In each batch, * it will process either one or all of the RDDs returned by the queue. * * @param queue Queue of RDDs. Modifications to this data structure must be synchronized. * @param oneAtATime Whether only one RDD should be consumed from the queue in every interval * @tparam T Type of objects in the RDD * * @note Arbitrary RDDs can be added to `queueStream`, there is no way to recover data of * those RDDs, so `queueStream` doesn't support checkpointing. */ def queueStream[T: ClassTag]( queue: Queue[RDD[T]], oneAtATime: Boolean = true ): InputDStream[T] = { queueStream(queue, oneAtATime, sc.makeRDD(Seq.empty[T], 1)) } /** * Create an input stream from a queue of RDDs. In each batch, * it will process either one or all of the RDDs returned by the queue. * * @param queue Queue of RDDs. Modifications to this data structure must be synchronized. * @param oneAtATime Whether only one RDD should be consumed from the queue in every interval * @param defaultRDD Default RDD is returned by the DStream when the queue is empty. * Set as null if no RDD should be returned when empty * @tparam T Type of objects in the RDD * * @note Arbitrary RDDs can be added to `queueStream`, there is no way to recover data of * those RDDs, so `queueStream` doesn't support checkpointing. */ def queueStream[T: ClassTag]( queue: Queue[RDD[T]], oneAtATime: Boolean, defaultRDD: RDD[T] ): InputDStream[T] = { new QueueInputDStream(this, queue, oneAtATime, defaultRDD) } /** * Create a unified DStream from multiple DStreams of the same type and same slide duration. */ def union[T: ClassTag](streams: Seq[DStream[T]]): DStream[T] = withScope { new UnionDStream[T](streams.toArray) } /** * Create a new DStream in which each RDD is generated by applying a function on RDDs of * the DStreams. */ def transform[T: ClassTag]( dstreams: Seq[DStream[_]], transformFunc: (Seq[RDD[_]], Time) => RDD[T] ): DStream[T] = withScope { new TransformedDStream[T](dstreams, sparkContext.clean(transformFunc)) } /** * Add a [[org.apache.spark.streaming.scheduler.StreamingListener]] object for * receiving system events related to streaming. */ def addStreamingListener(streamingListener: StreamingListener): Unit = { scheduler.listenerBus.addListener(streamingListener) } def removeStreamingListener(streamingListener: StreamingListener): Unit = { scheduler.listenerBus.removeListener(streamingListener) } private def validate(): Unit = { assert(graph != null, \"Graph is null\") graph.validate() require( !isCheckpointingEnabled || checkpointDuration != null, \"Checkpoint directory has been set, but the graph checkpointing interval has \" + \"not been set. Please use StreamingContext.checkpoint() to set the interval.\" ) // Verify whether the DStream checkpoint is serializable if (isCheckpointingEnabled) { val checkpoint = new Checkpoint(this, Time(0)) try { Checkpoint.serialize(checkpoint, conf) } catch { case e: NotSerializableException => throw new NotSerializableException( \"DStream checkpointing has been enabled but the DStreams with their functions \" + \"are not serializable\\n\" + SerializationDebugger.improveException(checkpoint, e).getMessage() ) } } if (Utils.isDynamicAllocationEnabled(sc.conf) || ExecutorAllocationManager.isDynamicAllocationEnabled(conf)) { logWarning(\"Dynamic Allocation is enabled for this application. \" + \"Enabling Dynamic allocation for Spark Streaming applications can cause data loss if \" + \"Write Ahead Log is not enabled for non-replayable sources. \" + \"See the programming guide for details on how to enable the Write Ahead Log.\") } } /** * :: DeveloperApi :: * * Return the current state of the context. The context can be in three possible states - * * - StreamingContextState.INITIALIZED - The context has been created, but not started yet. * Input DStreams, transformations and output operations can be created on the context. * - StreamingContextState.ACTIVE - The context has been started, and not stopped. * Input DStreams, transformations and output operations cannot be created on the context. * - StreamingContextState.STOPPED - The context has been stopped and cannot be used any more. */ @DeveloperApi def getState(): StreamingContextState = synchronized { state } /** * Start the execution of the streams. * * @throws IllegalStateException if the StreamingContext is already stopped. */ def start(): Unit = synchronized { state match { case INITIALIZED => startSite.set(DStream.getCreationSite()) StreamingContext.ACTIVATION_LOCK.synchronized { StreamingContext.assertNoOtherContextIsActive() try { validate() registerProgressListener() // Start the streaming scheduler in a new thread, so that thread local properties // like call sites and job groups can be reset without affecting those of the // current thread. ThreadUtils.runInNewThread(\"streaming-start\") { sparkContext.setCallSite(startSite.get) sparkContext.clearJobGroup() sparkContext.setLocalProperty(SparkContext.SPARK_JOB_INTERRUPT_ON_CANCEL, \"false\") savedProperties.set(Utils.cloneProperties(sparkContext.localProperties.get())) scheduler.start() } state = StreamingContextState.ACTIVE scheduler.listenerBus.post( StreamingListenerStreamingStarted(System.currentTimeMillis())) } catch { case NonFatal(e) => logError(\"Error starting the context, marking it as stopped\", e) scheduler.stop(false) state = StreamingContextState.STOPPED throw e } StreamingContext.setActiveContext(this) } logDebug(\"Adding shutdown hook\") // force eager creation of logger shutdownHookRef = ShutdownHookManager.addShutdownHook( StreamingContext.SHUTDOWN_HOOK_PRIORITY)(() => stopOnShutdown()) // Registering Streaming Metrics at the start of the StreamingContext assert(env.metricsSystem != null) env.metricsSystem.registerSource(streamingSource) uiTab.foreach(_.attach()) logInfo(\"StreamingContext started\") case ACTIVE => logWarning(\"StreamingContext has already been started\") case STOPPED => throw new IllegalStateException(\"StreamingContext has already been stopped\") } } /** * Wait for the execution to stop. Any exceptions that occurs during the execution * will be thrown in this thread. */ def awaitTermination(): Unit = { waiter.waitForStopOrError() } /** * Wait for the execution to stop. Any exceptions that occurs during the execution * will be thrown in this thread. * * @param timeout time to wait in milliseconds * @return `true` if it's stopped; or throw the reported error during the execution; or `false` * if the waiting time elapsed before returning from the method. */ def awaitTerminationOrTimeout(timeout: Long): Boolean = { waiter.waitForStopOrError(timeout) } /** * Stop the execution of the streams immediately (does not wait for all received data * to be processed). By default, if `stopSparkContext` is not specified, the underlying * SparkContext will also be stopped. This implicit behavior can be configured using the * SparkConf configuration spark.streaming.stopSparkContextByDefault. * * @param stopSparkContext If true, stops the associated SparkContext. The underlying SparkContext * will be stopped regardless of whether this StreamingContext has been * started. */ def stop( stopSparkContext: Boolean = conf.getBoolean(\"spark.streaming.stopSparkContextByDefault\", true) ): Unit = synchronized { stop(stopSparkContext, false) } /** * Stop the execution of the streams, with option of ensuring all received data * has been processed. * * @param stopSparkContext if true, stops the associated SparkContext. The underlying SparkContext * will be stopped regardless of whether this StreamingContext has been * started. * @param stopGracefully if true, stops gracefully by waiting for the processing of all * received data to be completed */ def stop(stopSparkContext: Boolean, stopGracefully: Boolean): Unit = { var shutdownHookRefToRemove: AnyRef = null if (LiveListenerBus.withinListenerThread.value) { throw new SparkException(s\"Cannot stop StreamingContext within listener bus thread.\") } synchronized { // The state should always be Stopped after calling `stop()`, even if we haven't started yet state match { case INITIALIZED => logWarning(\"StreamingContext has not been started yet\") state = STOPPED case STOPPED => logWarning(\"StreamingContext has already been stopped\") state = STOPPED case ACTIVE => // It's important that we don't set state = STOPPED until the very end of this case, // since we need to ensure that we're still able to call `stop()` to recover from // a partially-stopped StreamingContext which resulted from this `stop()` call being // interrupted. See SPARK-12001 for more details. Because the body of this case can be // executed twice in the case of a partial stop, all methods called here need to be // idempotent. Utils.tryLogNonFatalError { scheduler.stop(stopGracefully) } // Removing the streamingSource to de-register the metrics on stop() Utils.tryLogNonFatalError { env.metricsSystem.removeSource(streamingSource) } Utils.tryLogNonFatalError { uiTab.foreach(_.detach()) } Utils.tryLogNonFatalError { unregisterProgressListener() } StreamingContext.setActiveContext(null) Utils.tryLogNonFatalError { waiter.notifyStop() } if (shutdownHookRef != null) { shutdownHookRefToRemove = shutdownHookRef shutdownHookRef = null } logInfo(\"StreamingContext stopped successfully\") state = STOPPED } } if (shutdownHookRefToRemove != null) { ShutdownHookManager.removeShutdownHook(shutdownHookRefToRemove) } // Even if we have already stopped, we still need to attempt to stop the SparkContext because // a user might stop(stopSparkContext = false) and then call stop(stopSparkContext = true). if (stopSparkContext) sc.stop() } private def stopOnShutdown(): Unit = { val stopGracefully = conf.get(STOP_GRACEFULLY_ON_SHUTDOWN) logInfo(s\"Invoking stop(stopGracefully=$stopGracefully) from shutdown hook\") // Do not stop SparkContext, let its own shutdown hook stop it stop(stopSparkContext = false, stopGracefully = stopGracefully) } private def registerProgressListener(): Unit = { addStreamingListener(progressListener) sc.addSparkListener(progressListener) sc.ui.foreach(_.setStreamingJobProgressListener(progressListener)) } private def unregisterProgressListener(): Unit = { removeStreamingListener(progressListener) sc.removeSparkListener(progressListener) sc.ui.foreach(_.clearStreamingJobProgressListener()) } } /** * StreamingContext object contains a number of utility functions related to the * StreamingContext class. */ object StreamingContext extends Logging { /** * Lock that guards activation of a StreamingContext as well as access to the singleton active * StreamingContext in getActiveOrCreate(). */ private val ACTIVATION_LOCK = new Object() private val SHUTDOWN_HOOK_PRIORITY = ShutdownHookManager.SPARK_CONTEXT_SHUTDOWN_PRIORITY + 1 private val activeContext = new AtomicReference[StreamingContext](null) private def assertNoOtherContextIsActive(): Unit = { ACTIVATION_LOCK.synchronized { if (activeContext.get() != null) { throw new IllegalStateException( \"Only one StreamingContext may be started in this JVM. \" + \"Currently running StreamingContext was started at\" + activeContext.get.getStartSite().longForm) } } } private def setActiveContext(ssc: StreamingContext): Unit = { ACTIVATION_LOCK.synchronized { activeContext.set(ssc) } } /** * Get the currently active context, if there is one. Active means started but not stopped. */ def getActive(): Option[StreamingContext] = { ACTIVATION_LOCK.synchronized { Option(activeContext.get()) } } /** * Either return the \"active\" StreamingContext (that is, started but not stopped), or create a * new StreamingContext that is * @param creatingFunc Function to create a new StreamingContext */ def getActiveOrCreate(creatingFunc: () => StreamingContext): StreamingContext = { ACTIVATION_LOCK.synchronized { getActive().getOrElse { creatingFunc() } } } /** * Either get the currently active StreamingContext (that is, started but not stopped), * OR recreate a StreamingContext from checkpoint data in the given path. If checkpoint data * does not exist in the provided, then create a new StreamingContext by calling the provided * `creatingFunc`. * * @param checkpointPath Checkpoint directory used in an earlier StreamingContext program * @param creatingFunc Function to create a new StreamingContext * @param hadoopConf Optional Hadoop configuration if necessary for reading from the * file system * @param createOnError Optional, whether to create a new StreamingContext if there is an * error in reading checkpoint data. By default, an exception will be * thrown on error. */ def getActiveOrCreate( checkpointPath: String, creatingFunc: () => StreamingContext, hadoopConf: Configuration = SparkHadoopUtil.get.conf, createOnError: Boolean = false ): StreamingContext = { ACTIVATION_LOCK.synchronized { getActive().getOrElse { getOrCreate(checkpointPath, creatingFunc, hadoopConf, createOnError) } } } /** * Either recreate a StreamingContext from checkpoint data or create a new StreamingContext. * If checkpoint data exists in the provided `checkpointPath`, then StreamingContext will be * recreated from the checkpoint data. If the data does not exist, then the StreamingContext * will be created by called the provided `creatingFunc`. * * @param checkpointPath Checkpoint directory used in an earlier StreamingContext program * @param creatingFunc Function to create a new StreamingContext * @param hadoopConf Optional Hadoop configuration if necessary for reading from the * file system * @param createOnError Optional, whether to create a new StreamingContext if there is an * error in reading checkpoint data. By default, an exception will be * thrown on error. */ def getOrCreate( checkpointPath: String, creatingFunc: () => StreamingContext, hadoopConf: Configuration = SparkHadoopUtil.get.conf, createOnError: Boolean = false ): StreamingContext = { val checkpointOption = CheckpointReader.read( checkpointPath, new SparkConf(), hadoopConf, createOnError) checkpointOption.map(new StreamingContext(null, _, null)).getOrElse(creatingFunc()) } /** * Find the JAR from which a given class was loaded, to make it easy for users to pass * their JARs to StreamingContext. */ def jarOfClass(cls: Class[_]): Option[String] = SparkContext.jarOfClass(cls) private[streaming] def createNewSparkContext(conf: SparkConf): SparkContext = { new SparkContext(conf) } private[streaming] def createNewSparkContext( master: String, appName: String, sparkHome: String, jars: Seq[String], environment: Map[String, String] ): SparkContext = { val conf = SparkContext.updatedConf( new SparkConf(), master, appName, sparkHome, jars, environment) new SparkContext(conf) } private[streaming] def rddToFileName[T](prefix: String, suffix: String, time: Time): String = { var result = time.milliseconds.toString if (prefix != null && prefix.length > 0) { result = s\"$prefix-$result\" } if (suffix != null && suffix.length > 0) { result = s\"$result.$suffix\" } result } } private class StreamingContextPythonHelper { /** * This is a private method only for Python to implement `getOrCreate`. */ def tryRecoverFromCheckpoint(checkpointPath: String): Option[StreamingContext] = { val checkpointOption = CheckpointReader.read( checkpointPath, new SparkConf(), SparkHadoopUtil.get.conf, ignoreReadError = false) checkpointOption.map(new StreamingContext(null, _, null)) } }"
+      ],
+      "key_facts": [
+        "Private streaming class",
+        "Used by StreamingContext to manage waiting for termination or errors in methods awaitTermination() and awaitTerminationOrTimeout()",
+        "Implements a thread-safe waiting mechanism for the streaming context to handle stop signals and errors",
+        "Allows threads to wait for either the context to stop or an error to occur",
+        "Uses ReentrantLock for thread synchronization",
+        "Has three main methods: notifyError(), notifyStop(), and waitForStopOrError()",
+        "Condition variable is used to thread coordination",
+        "Thread-safe implementation using lock/unlock pattern around all state modifications"
+      ],
+      "key_entities": [
+        "org/apache/spark/streaming/ContextWaiter#",
+        "org/apache/spark/streaming/StreamingContext#"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q002",
+      "question": "Describe PythonRunner Object and all methods that use that object",
+      "category": "definition",
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "PythonRunner is a private[spark] object defined in org.apache.spark.api.python package",
+        "Contains a mutable ConcurrentHashMap.newKeySet for tracking running monitor threads",
+        "runningMonitorThreads field stores tuples of (Socket, Long) representing worker and task attempt ID pairs",
+        "Provides an apply method that takes PythonFunction and returns PythonRunner instance",
+        "apply method creates new PythonRunner with Seq(ChainedPythonFunctions(Seq(func)))",
+        "Used by PythonRDD#compute method to create runner instance",
+        "PythonRDD#compute calls runner.compute with parent iterator, partition index, and context",
+        "Used by BasePythonRunner.MonitorThread#run in finally block for cleanup",
+        "MonitorThread#run removes key from runningMonitorThreads when reuseWorker is true",
+        "Used by BasePythonRunner#compute to check and add monitor thread keys",
+        "BasePythonRunner#compute calls PythonRunner.runningMonitorThreads.add(key) to prevent duplicate monitor threads",
+        "Thread tracking is conditional on reuseWorker flag being enabled",
+        "Monitor thread tracking ensures proper resource cleanup and prevents thread leaks"
+      ],
+      "key_entities": [
+        "org/apache/spark/api/python/PythonRunner.",
+        "org/apache/spark/api/python/BasePythonRunner#compute().",
+        "org/apache/spark/api/python/BasePythonRunner#MonitorThread#run().",
+        "org/apache/spark/api/python/PythonRDD#compute()."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q003",
+      "question": "What could be improved in class KafkaWrite?",
+      "category": "definition",
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "Replace 'assert(schema != null)' with constructor-level 'require' for more robust validation.",
+        "Eliminate code duplication between 'toBatch' and 'toStreaming' by extracting shared instantiation logic.",
+        "Improve type safety by converting 'ju.Map[String, Object]' to a more specific Scala-native configuration type.",
+        "Add explicit error handling for the 'topic: Option[String]' field to prevent empty options from reaching underlying writers.",
+        "Refactor method signatures to ensure atomic responsibility and prevent logic leakage between 'description' and 'toBatch'."
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/kafka010/KafkaWrite#",
+        "org/apache/spark/sql/kafka010/KafkaWrite#toBatch().",
+        "org/apache/spark/sql/kafka010/KafkaWrite#toStreaming().",
+        "org/apache/spark/sql/kafka010/KafkaWrite#description()."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q004",
+      "question": "Describe class DefaultValueInterval and all neighbors of it",
+      "category": "definition",
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "DefaultValueInterval is a specialized class for StringType and BinaryType columns that lack min/max statistics.",
+        "The 'contains' method in DefaultValueInterval always returns true to provide a conservative estimate.",
+        "The ValueInterval trait serves as the base interface for DefaultValueInterval, NumericValueInterval, and NullValueInterval.",
+        "NumericValueInterval is a neighbor that handles numeric ranges using Double precision for min/max values.",
+        "NullValueInterval is a neighbor used for null-only columns; its 'contains' method always returns false.",
+        "The ValueInterval.apply factory method handles the instantiation logic, selecting DefaultValueInterval based on the DataType.",
+        "In 'isIntersected' checks, DefaultValueInterval is assumed to intersect with any interval except NullValueInterval.",
+        "The 'intersect' method returns (None, None) for DefaultValueInterval because string/binary types do not support bound calculation."
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/catalyst/plans/logical/statsEstimation/DefaultValueInterval#",
+        "org/apache/spark/sql/catalyst/plans/logical/statsEstimation/ValueInterval#",
+        "org/apache/spark/sql/catalyst/plans/logical/statsEstimation/ValueInterval.intersect().",
+        "org/apache/spark/sql/catalyst/plans/logical/statsEstimation/ValueInterval.isIntersected().",
+        "org/apache/spark/sql/catalyst/plans/logical/statsEstimation/ValueInterval.apply().",
+        "org/apache/spark/sql/catalyst/plans/logical/statsEstimation/DefaultValueInterval#contains()."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q005",
+      "question": "Describe class ExampleJdbcConnectionProvider and entities extended by it",
+      "category": "definition",
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "ExampleJdbcConnectionProvider is a concrete example implementation of a JDBC connection provider in Spark.",
+        "The class extends the JdbcConnectionProvider abstract class and mixes in the Logging trait.",
+        "It identifies itself with the unique name 'ExampleJdbcConnectionProvider'.",
+        "All core methods—canHandle, getConnection, and modifiesSecurityContext—are implemented as stubs returning false or null.",
+        "The class logs an info message ('ExampleJdbcConnectionProvider instantiated') immediately upon being initialized.",
+        "JdbcConnectionProvider (Parent) is an @Unstable abstract class used to define how Spark handles custom database connections.",
+        "Logging (Trait) is a utility trait that provides a transient SLF4J Logger instance to its subclasses.",
+        "The Logging trait enables lazy evaluation of log messages to improve performance when specific log levels are disabled."
+      ],
+      "key_entities": [
+        "org/apache/spark/examples/sql/jdbc/ExampleJdbcConnectionProvider#",
+        "org/apache/spark/internal/Logging#",
+        "org/apache/spark/sql/jdbc/JdbcConnectionProvider#"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q006",
+      "question": "What are 5 classes with most lines of code?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "functions - OBJECT - sql/core/src/main/scala/org/apache/spark/sql/functions.scala - Metric value: 5380.00 astbuilder - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/parser/AstBuilder.scala - Metric value: 4408.00 dataset - CLASS - sql/core/src/main/scala/org/apache/spark/sql/Dataset.scala - Metric value: 3683.00 sqlconf - OBJECT - sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala - Metric value: 3514.00 analyzer - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/Analyzer.scala - Metric value: 3483.00"
+      ],
+      "key_facts": [
+        "functions - OBJECT - sql/core/src/main/scala/org/apache/spark/sql/functions.scala - Metric value: 5380.00",
+        "astbuilder - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/parser/AstBuilder.scala - Metric value: 4408.00",
+        "dataset - CLASS - sql/core/src/main/scala/org/apache/spark/sql/Dataset.scala - Metric value: 3683.00",
+        "sqlconf - OBJECT - sql/catalyst/src/main/scala/org/apache/spark/sql/internal/SQLConf.scala - Metric value: 3514.00",
+        "analyzer - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/Analyzer.scala - Metric value: 3483.00"
+      ],
+      "key_entities": [
+        "functions",
+        "astbuilder",
+        "dataset",
+        "sqlconf",
+        "analyzer"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q007",
+      "question": "Describe 3 most important classes in project.",
+      "category": "top",
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "RDD is an abstract class that represents an immutable, distributed collection of elements",
+        "RDD defines how data is partitioned, computed, and transformed across the cluster",
+        "RDD maintains lineage information through Dependency objects for fault tolerance",
+        "RDD exposes core transformations (map, flatMap, filter) and actions (count, collect, reduce)",
+        "RDD relies on SparkContext to schedule and execute computations",
+        "SparkContext is the main entry point that manages the Spark application lifecycle",
+        "SparkContext is responsible for creating RDDs and assigning unique RDD identifiers",
+        "SparkContext schedules jobs and coordinates execution across the cluster",
+        "Dependency represents a relationship between a child RDD and its parent RDDs",
+        "Dependency objects define execution semantics such as narrow and shuffle dependencies",
+        "Dependencies are used to build the execution DAG and determine stage boundaries",
+        "RDD uses Partition objects to divide data into parallelizable units of work",
+        "Partition defines the index and identity of a slice of an RDD processed by a single task"
+      ],
+      "key_entities": [
+        "org/apache/spark/rdd/RDD#",
+        "org/apache/spark/sql/Dataset#",
+        "org/apache/spark/sql/catalog/Column#"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q008",
+      "question": "What are 5 least important classes in project and value of combined metric for them?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "$anonfun - CLASS - sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/parquet/ParquetFilters.scala - Metric value: 2740.00 $anonfun - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/CTESubstitution.scala - Metric value: 3248.00 $anonfun - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/AnalysisHelper.scala - Metric value: 3597.00 $anonfun - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/Optimizer.scala - Metric value: 6220.00 $anonfun - CLASS - sql/core/src/main/scala/org/apache/spark/sql/execution/columnar/InMemoryTableScanExec.scala - Metric value: 6605.00"
+      ],
+      "key_facts": [
+        "$anonfun - CLASS - sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/parquet/ParquetFilters.scala - Metric value: 2740.00",
+        "$anonfun - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/CTESubstitution.scala - Metric value: 3248.00",
+        "$anonfun - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/AnalysisHelper.scala - Metric value: 3597.00",
+        "$anonfun - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/Optimizer.scala - Metric value: 6220.00",
+        "$anonfun - CLASS - sql/core/src/main/scala/org/apache/spark/sql/execution/columnar/InMemoryTableScanExec.scala - Metric value: 6605.00"
+      ],
+      "key_entities": [
+        "sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/parquet/ParquetFilters.scala",
+        "sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/CTESubstitution.scala",
+        "sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/AnalysisHelper.scala",
+        "sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/Optimizer.scala",
+        "sql/core/src/main/scala/org/apache/spark/sql/execution/columnar/InMemoryTableScanExec.scala"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q009",
+      "question": "What are 10 entities with the most number of neighbors?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "expression - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/Expression.scala - Metric value: 959.00 logicalplan - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala - Metric value: 874.00 utils - OBJECT - core/src/main/scala/org/apache/spark/util/Utils.scala - Metric value: 861.00 querycompilationerrors - OBJECT - sql/catalyst/src/main/scala/org/apache/spark/sql/errors/QueryCompilationErrors.scala - Metric value: 789.00 rdd - CLASS - core/src/main/scala/org/apache/spark/rdd/RDD.scala - Metric value: 731.00 queryexecutionerrors - OBJECT - sql/catalyst/src/main/scala/org/apache/spark/sql/errors/QueryExecutionErrors.scala - Metric value: 709.00 logging - TRAIT - core/src/main/scala/org/apache/spark/internal/Logging.scala - Metric value: 664.00 column - CLASS - sql/core/src/main/scala/org/apache/spark/sql/Column.scala - Metric value: 637.00 internalrow - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/InternalRow.scala - Metric value: 612.00 loginfo - METHOD - core/src/main/scala/org/apache/spark/internal/Logging.scala - Metric value: 595.00"
+      ],
+      "key_facts": [
+        "expression - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/Expression.scala - Metric value: 959.00",
+        "logicalplan - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/logical/LogicalPlan.scala - Metric value: 874.00",
+        "utils - OBJECT - core/src/main/scala/org/apache/spark/util/Utils.scala - Metric value: 861.00",
+        "querycompilationerrors - OBJECT - sql/catalyst/src/main/scala/org/apache/spark/sql/errors/QueryCompilationErrors.scala - Metric value: 789.00",
+        "rdd - CLASS - core/src/main/scala/org/apache/spark/rdd/RDD.scala - Metric value: 731.00",
+        "queryexecutionerrors - OBJECT - sql/catalyst/src/main/scala/org/apache/spark/sql/errors/QueryExecutionErrors.scala - Metric value: 709.00",
+        "logging - TRAIT - core/src/main/scala/org/apache/spark/internal/Logging.scala - Metric value: 664.00",
+        "column - CLASS - sql/core/src/main/scala/org/apache/spark/sql/Column.scala - Metric value: 637.00",
+        "internalrow - CLASS - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/InternalRow.scala - Metric value: 612.00",
+        "loginfo - METHOD - core/src/main/scala/org/apache/spark/internal/Logging.scala - Metric value: 595.00"
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/catalyst/expressions/Expression#",
+        "org/apache/spark/sql/catalyst/plans/logical/LogicalPlan#",
+        "org/apache/spark/ml/impl/Utils.",
+        "org/apache/spark/sql/errors/QueryCompilationErrors.",
+        "org/apache/spark/rdd/RDD#",
+        "org/apache/spark/sql/errors/QueryExecutionErrors.",
+        "org/apache/spark/internal/Logging#",
+        "org/apache/spark/sql/catalog/Column#",
+        "org/apache/spark/sql/catalyst/InternalRow#",
+        "org/apache/spark/internal/Logging#logInfo(+1)."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q010",
+      "question": "What are all entities with the 10 outgoing degrees?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "multibranchescodegen - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/conditionalExpressions.scala - Metric value: 100.00 fetchrecord - METHOD - external/kafka-0-10-sql/src/main/scala/org/apache/spark/sql/kafka010/consumer/KafkaDataConsumer.scala - Metric value: 100.00 main - METHOD - examples/src/main/scala/org/apache/spark/examples/mllib/BinaryClassificationMetricsExample.scala - Metric value: 100.00 mergeinternal - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/types/StructType.scala - Metric value: 100.00 nullsafecodegen - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/Expression.scala - Metric value: 100.00 tojson - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/Row.scala - Metric value: 100.00 caststringtoyminterval - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/IntervalUtils.scala - Metric value: 100.00 updateexpressionsdef - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/CentralMomentAgg.scala - Metric value: 100.00 run - METHOD - sql/core/src/main/scala/org/apache/spark/sql/execution/command/createDataSourceTables.scala - Metric value: 100.00 handle - METHOD - core/src/main/scala/org/apache/spark/deploy/SparkSubmitArguments.scala - Metric value: 100.00"
+      ],
+      "key_facts": [
+        "multibranchescodegen - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/conditionalExpressions.scala - Metric value: 100.00",
+        "fetchrecord - METHOD - external/kafka-0-10-sql/src/main/scala/org/apache/spark/sql/kafka010/consumer/KafkaDataConsumer.scala - Metric value: 100.00",
+        "main - METHOD - examples/src/main/scala/org/apache/spark/examples/mllib/BinaryClassificationMetricsExample.scala - Metric value: 100.00",
+        "mergeinternal - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/types/StructType.scala - Metric value: 100.00",
+        "nullsafecodegen - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/Expression.scala - Metric value: 100.00",
+        "tojson - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/Row.scala - Metric value: 100.00",
+        "caststringtoyminterval - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/IntervalUtils.scala - Metric value: 100.00",
+        "updateexpressionsdef - METHOD - sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/CentralMomentAgg.scala - Metric value: 100.00",
+        "run - METHOD - sql/core/src/main/scala/org/apache/spark/sql/execution/command/createDataSourceTables.scala - Metric value: 100.00",
+        "handle - METHOD - core/src/main/scala/org/apache/spark/deploy/SparkSubmitArguments.scala - Metric value: 100.00"
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/catalyst/expressions/CaseWhen#multiBranchesCodegen().",
+        "org/apache/spark/sql/kafka010/consumer/KafkaDataConsumer#fetchRecord().",
+        "org/apache/spark/examples/mllib/BinaryClassificationMetricsExample.main().",
+        "org/apache/spark/sql/types/StructType.mergeInternal().",
+        "org/apache/spark/sql/catalyst/expressions/SeptenaryExpression#nullSafeCodeGen().",
+        "local34:sql/catalyst/src/main/scala/org/apache/spark/sql/Row.scala",
+        "sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/util/IntervalUtils.scala",
+        "org/apache/spark/sql/catalyst/expressions/aggregate/CentralMomentAgg#updateExpressionsDef().",
+        "org/apache/spark/sql/execution/command/CreateDataSourceTableCommand#run().",
+        "org/apache/spark/deploy/SparkSubmitArguments#handle()."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q011",
+      "question": "How does Spark manage external data connectivity and writing?",
+      "category": "general",
+      "parameters": {
+        "kinds": [
+          "CLASS",
+          "METHOD",
+          "TRAIT"
+        ],
+        "keywords": [
+          "write",
+          "batch",
+          "stream",
+          "sink",
+          "source",
+          "connector",
+          "jdbc",
+          "provider",
+          "commit",
+          "options"
+        ],
+        "top_nodes": 8,
+        "max_neighbors": 4
+      },
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "Spark uses JDBCOptions and JdbcOptionsInWrite to manage database connectivity parameters like 'url', 'dbtable', and 'driver'.",
+        "JdbcOptionsInWrite enforces the presence of the 'dbtable' option, as 'query' is not applicable during write operations.",
+        "JDBCOptions handles driver registration via DriverRegistry and manages connection properties like isolation levels, timeouts, and batch sizes.",
+        "WriteToMicroBatchDataSource acts as a UnaryNode in the logical plan to facilitate streaming writes to DataSourceV2 tables.",
+        "MicroBatchWrite coordinates the writing process for specific epoch IDs, delegating commit and abort actions to a StreamingWrite support object.",
+        "MicroBatchWriterFactory creates DataWriter instances for individual partitions and tasks, linking them to a specific streaming epoch.",
+        "StreamWriterCommitProgress is a metadata case class used to collect progress information, specifically the number of output rows, after a commit.",
+        "JDBCOptions supports advanced write features such as table truncation (isTruncate), cascade truncation, and custom table creation options."
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/execution/datasources/jdbc/JdbcOptionsInWrite#",
+        "org/apache/spark/sql/execution/streaming/sources/WriteToMicroBatchDataSource#",
+        "org/apache/spark/sql/execution/streaming/sources/MicroBatchWrite#",
+        "org/apache/spark/sql/execution/datasources/jdbc/JDBCOptions#",
+        " org/apache/spark/sql/execution/datasources/v2/StreamWriterCommitProgress#"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q012",
+      "question": "What is the architecture for logging and error reporting?",
+      "category": "general",
+      "parameters": {
+        "kinds": [
+          "CLASS",
+          "METHOD",
+          "TRAIT"
+        ],
+        "keywords": [
+          "logging",
+          "info",
+          "debug",
+          "error",
+          "exception",
+          "trace",
+          "throwable",
+          "logger",
+          "throw",
+          "message"
+        ],
+        "top_nodes": 8,
+        "max_neighbors": 4
+      },
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "DriverLogger captures local logs via a Log4j appender and synchronizes them to DFS every 5 seconds.",
+        "The DfsAsyncWriter uses a background thread pool and a 1MB buffer to perform non-blocking log uploads.",
+        "Spark uses a centralized 'error-classes.json' registry to map error codes to human-readable templates.",
+        "SparkThrowableHelper formats error messages by replacing <placeholders> with runtime parameters using String.format.",
+        "ErrorInfo supports SQL standard compatibility by associating error classes with specific sqlState codes.",
+        "ReceiverErrorInfo specifically tracks failure metadata for Spark Streaming, including the last error message and timestamp.",
+        "The DriverLogger.apply method ensures log persistence is only active in client mode when a DFS directory is configured.",
+        "Log sync ensures durability (hsync/hflush) so that driver logs are available even after the application process terminates."
+      ],
+      "key_entities": [
+        "org/apache/spark/util/logging/DriverLogger#",
+        "org/apache/spark/util/logging/DriverLogger#DfsAsyncWriter#",
+        "org/apache/spark/ErrorInfo#",
+        "org/apache/spark/streaming/scheduler/ReceiverErrorInfo#",
+        "local2:core/src/main/scala/org/apache/spark/ErrorInfo.scala"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q013",
+      "question": "How does the project manage memory allocation?",
+      "category": "general",
+      "parameters": {
+        "kinds": [
+          "CLASS",
+          "METHOD",
+          "INTERFACE",
+          "TRAIT"
+        ],
+        "keywords": [
+          "memory",
+          "alloc",
+          "allocation",
+          "manager",
+          "allocator",
+          "pool"
+        ],
+        "top_nodes": 8,
+        "max_neighbors": 5
+      },
+      "ground_truth_contexts": [
+      ],
+      "key_facts": [
+        "Spark uses a Unified Memory Manager that dynamically shares a single memory region between execution and storage tasks.",
+        "Execution memory has priority over storage memory; execution can evict storage, but storage cannot evict execution memory.",
+        "Reserved Memory is a fixed 300MB buffer hardcoded in the source code to protect Spark's internal JVM objects from OOM errors.",
+        "Memory is divided into On-Heap (managed by JVM GC) and Off-Heap (Tungsten mode, manual allocation to bypass GC overhead).",
+        "Dynamic Resource Allocation (DRA) scales executors up based on pending tasks and down after a specific idle timeout.",
+        "Spark Streaming uses a specialized ExecutorAllocationManager that scales based on batch processing ratios rather than just task backlogs.",
+        "An External Shuffle Service is essential for DRA to preserve shuffle data after a worker node or executor is removed.",
+        "Project Tungsten manages off-heap data in 'pages' (MemoryBlocks) to optimize L1/L2 cache locality and reduce fragmentation.",
+        "DriverLogger persists local logs to a DFS (like HDFS) using an asynchronous writer (DfsAsyncWriter) to prevent blocking the driver."
+      ],
+      "key_entities": [
+        "org/apache/spark/util/logging/DriverLogger#",
+        "org/apache/spark/util/logging/DriverLogger#DfsAsyncWriter#",
+        "org/apache/spark/ErrorInfo#",
+        "org/apache/spark/streaming/scheduler/ReceiverErrorInfo#",
+        "local2:core/src/main/scala/org/apache/spark/ErrorInfo.scala"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q016",
+      "question": "What are all related entities of class objecthashaggregateexe?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "Neighbors (sorted by combined metric importance) of Node: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#, with name: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec# kind: CLASS located in: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala:\n1.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics., name: sqlmetrics, kind: OBJECT, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL\n2.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics.createMetric()., name: createmetric, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL\n3.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics.createTimingMetric()., name: createtimingmetric, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL\n4.Node_id: org/apache/spark/sql/execution/SparkPlan#sparkContext()., name: sparkcontext, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala, relations: CALL\n5.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics.createSizeMetric()., name: createsizemetric, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL\n6.Node_id: org/apache/spark/sql/catalyst/plans/QueryPlan#output()., name: output, kind: METHOD, uri: sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/QueryPlan.scala, relations: CALL\n7.Node_id: org/apache/spark/sql/execution/aggregate/BaseAggregateExec#, name: baseaggregateexec, kind: TRAIT, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/BaseAggregateExec.scala, relations: EXTEND\n8.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#toString()., name: tostring, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION\n9.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#doExecute()., name: doexecute, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION\n10.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#verboseString()., name: verbosestring, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION\n11.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#withNewChildInternal()., name: withnewchildinternal, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION, RETURN_TYPE_BY\n12.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#simpleString()., name: simplestring, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION\n13.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#copy()., name: copy, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION\n14.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#`<init>`()., name: <init>, kind: CONSTRUCTOR, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION"
+      ],
+      "key_facts": [
+        " Node: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#, with name: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec# kind: CLASS located in: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala",
+        "1.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics., name: sqlmetrics, kind: OBJECT, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL",
+        "2.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics.createMetric()., name: createmetric, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL",
+        "3.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics.createTimingMetric()., name: createtimingmetric, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL",
+        "4.Node_id: org/apache/spark/sql/execution/SparkPlan#sparkContext()., name: sparkcontext, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/SparkPlan.scala, relations: CALL",
+        "5.Node_id: org/apache/spark/sql/execution/metric/SQLMetrics.createSizeMetric()., name: createsizemetric, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/metric/SQLMetrics.scala, relations: CALL",
+        "6.Node_id: org/apache/spark/sql/catalyst/plans/QueryPlan#output()., name: output, kind: METHOD, uri: sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/plans/QueryPlan.scala, relations: CALL",
+        "7.Node_id: org/apache/spark/sql/execution/aggregate/BaseAggregateExec#, name: baseaggregateexec, kind: TRAIT, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/BaseAggregateExec.scala, relations: EXTEND",
+        "8.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#toString()., name: tostring, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION",
+        "9.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#doExecute()., name: doexecute, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION",
+        "10.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#verboseString()., name: verbosestring, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION",
+        "11.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#withNewChildInternal()., name: withnewchildinternal, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION, RETURN_TYPE_BY",
+        "12.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#simpleString()., name: simplestring, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION",
+        "13.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#copy()., name: copy, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION",
+        "14.Node_id: org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#`<init>`()., name: <init>, kind: CONSTRUCTOR, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec.scala, relations: DECLARATION"
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/execution/metric/SQLMetrics.",
+        "org/apache/spark/sql/execution/metric/SQLMetrics.createMetric().",
+        "org/apache/spark/sql/execution/metric/SQLMetrics.createTimingMetric().",
+        "org/apache/spark/sql/execution/SparkPlan#sparkContext().",
+        "org/apache/spark/sql/execution/metric/SQLMetrics.createSizeMetric().",
+        "org/apache/spark/sql/catalyst/plans/QueryPlan#output().",
+        "org/apache/spark/sql/execution/aggregate/BaseAggregateExec#",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#toString().",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#doExecute().",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#verboseString().",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#withNewChildInternal().",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#simpleString().",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#copy().",
+        "org/apache/spark/sql/execution/aggregate/ObjectHashAggregateExec#`<init>`()."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q017",
+      "question": "What are all related entities of method merge?",
+      "category": "top",
+      "ground_truth_contexts": [
+        " Neighbors (sorted by combined metric importance) of Node: org/apache/spark/sql/execution/aggregate/ScalaUDAF#merge()., with name: merge. kind: METHOD located in: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/udaf.scala:"
+      ],
+      "key_facts": [
+        "1.Node_id: org/apache/spark/sql/expressions/UserDefinedAggregateFunction#merge()., name: merge, kind: METHOD, uri: sql/core/src/main/scala/org/apache/spark/sql/expressions/udaf.scala, relations: CALL",
+        "2.Node_id: org/apache/spark/sql/execution/aggregate/ScalaUDAF#, name: scalaudaf, kind: CLASS, uri: sql/core/src/main/scala/org/apache/spark/sql/execution/aggregate/udaf.scala, relations: DECLARATION_BY"
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/expressions/UserDefinedAggregateFunction#merge()",
+        "org/apache/spark/sql/execution/aggregate/ScalaUDAF#"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q018",
+      "question": "What are all classes that class StreamingTest calls?",
+      "category": "top",
+      "ground_truth_contexts": [
+        " Neighbors (sorted by combined metric importance) of Node: org/apache/spark/mllib/stat/test/StreamingTest#, with name: streamingtest kind: CLASS located in: mllib/src/main/scala/org/apache/spark/mllib/stat/test/StreamingTest.scala:"
+      ],
+      "key_facts": [
+        "No classes are called by StreamingTest class"
+      ],
+      "key_entities": [
+        "org/apache/spark/mllib/stat/test/StreamingTest#"
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q019",
+      "question": "What are all classes that class StreamingTest calls?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "Neighbors (sorted by combined metric importance) of Node: org/apache/spark/scheduler/TaskSetManager#, with name: tasksetmanager kind: CLASS located in: core/src/main/scala/org/apache/spark/scheduler/TaskSetManager.scala:\n1.Node_id: org/apache/spark/internal/Logging#, name: logging, kind: TRAIT, uri: core/src/main/scala/org/apache/spark/internal/Logging.scala, relations: EXTEND\n2.Node_id: org/apache/spark/scheduler/TaskSchedulerImpl#, name: taskschedulerimpl, kind: CLASS, uri: core/src/main/scala/org/apache/spark/scheduler/TaskSchedulerImpl.scala, relations: CALL_BY\n3.Node_id: org/apache/spark/SparkEnv., name: sparkenv, kind: OBJECT, uri: core/src/main/scala/org/apache/spark/SparkEnv.scala, relations: CALL\n4.Node_id: org/apache/spark/scheduler/TaskInfo#, name: taskinfo, kind: CLASS, uri: core/src/main/scala/org/apache/spark/scheduler/TaskInfo.scala, relations: CALL\n5.Node_id: org/apache/spark/scheduler/Schedulable#, name: schedulable, kind: TRAIT, uri: core/src/main/scala/org/apache/spark/scheduler/Schedulable.scala, relations: EXTEND\n6.Node_id: org/apache/spark/SparkConf#get(+2)., name: get, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkConf.scala, relations: CALL\n7.Node_id: org/apache/spark/internal/Logging#logDebug()., name: logdebug, kind: METHOD, uri: core/src/main/scala/org/apache/spark/internal/Logging.scala, relations: CALL\n8.Node_id: org/apache/spark/SparkEnv.get()., name: get, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkEnv.scala, relations: CALL\n9.Node_id: org/apache/spark/SparkContext#listenerBus()., name: listenerbus, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkContext.scala, relations: CALL\n10.Node_id: org/apache/spark/SparkConf#getLong()., name: getlong, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkConf.scala, relations: CALL"
+      ],
+      "key_facts": [
+        "1.Node_id: org/apache/spark/internal/Logging#, name: logging, kind: TRAIT, uri: core/src/main/scala/org/apache/spark/internal/Logging.scala, relations: EXTEND",
+        "2.Node_id: org/apache/spark/scheduler/TaskSchedulerImpl#, name: taskschedulerimpl, kind: CLASS, uri: core/src/main/scala/org/apache/spark/scheduler/TaskSchedulerImpl.scala, relations: CALL_BY",
+        "3.Node_id: org/apache/spark/SparkEnv., name: sparkenv, kind: OBJECT, uri: core/src/main/scala/org/apache/spark/SparkEnv.scala, relations: CALL",
+        "4.Node_id: org/apache/spark/scheduler/TaskInfo#, name: taskinfo, kind: CLASS, uri: core/src/main/scala/org/apache/spark/scheduler/TaskInfo.scala, relations: CALL",
+        "5.Node_id: org/apache/spark/scheduler/Schedulable#, name: schedulable, kind: TRAIT, uri: core/src/main/scala/org/apache/spark/scheduler/Schedulable.scala, relations: EXTEND",
+        "6.Node_id: org/apache/spark/SparkConf#get(+2)., name: get, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkConf.scala, relations: CALL",
+        "7.Node_id: org/apache/spark/internal/Logging#logDebug()., name: logdebug, kind: METHOD, uri: core/src/main/scala/org/apache/spark/internal/Logging.scala, relations: CALL",
+        "8.Node_id: org/apache/spark/SparkEnv.get()., name: get, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkEnv.scala, relations: CALL",
+        "9.Node_id: org/apache/spark/SparkContext#listenerBus()., name: listenerbus, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkContext.scala, relations: CALL",
+        "10.Node_id: org/apache/spark/SparkConf#getLong()., name: getlong, kind: METHOD, uri: core/src/main/scala/org/apache/spark/SparkConf.scala, relations: CALL"
+      ],
+      "key_entities": [
+        "org/apache/spark/internal/Logging#",
+        "org/apache/spark/scheduler/TaskSchedulerImpl#",
+        "org/apache/spark/SparkEnv.",
+        "org/apache/spark/scheduler/TaskInfo#",
+        "org/apache/spark/scheduler/Schedulable#",
+        "org/apache/spark/SparkConf#get(+2).",
+        "org/apache/spark/internal/Logging#logDebug().",
+        "org/apache/spark/SparkEnv.get().",
+        "org/apache/spark/SparkContext#listenerBus().",
+        "org/apache/spark/SparkConf#getLong()."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    },
+    {
+      "id": "Q020",
+      "question": "What are all neighbors of object HistogramNumeric?",
+      "category": "top",
+      "ground_truth_contexts": [
+        "No neighbors to fetch"
+      ],
+      "key_facts": [
+        "No neighbors to fetch"
+      ],
+      "key_entities": [
+        "org/apache/spark/sql/catalyst/expressions/aggregate/HistogramNumeric."
+      ],
+      "junie_stats": {
+        "with_mcp": {
+          "answer": "",
+          "time": 0,
+          "context_tokens": 0,
+          "prompt_tokens": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "used_context": [],
+          "tokens": 0
+        },
+        "without_mcp": {
+          "answer": "",
+          "time": 0,
+          "hallucination": 0,
+          "correctness": 0,
+          "tokens": 0
+        }
+      }
+    }
+  ]
+}
