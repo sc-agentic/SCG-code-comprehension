@@ -225,7 +225,7 @@ def expand_definition_neighbors(
         neighbors_added = 0
 
         if not neighbors_to_fetch:
-            logger.debug(f"No neighbors matched neighor_types: {neighbor_types} and relation_types: {relation_types}")
+            continue
 
         neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
 

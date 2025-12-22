@@ -86,7 +86,9 @@ async def get_related_entities(
 
         neighbors_to_fetch = list(relations_by_entity.keys())
 
-        logger.debug(f"Neighbors to fetch: {neighbors_to_fetch}")
+        if len(neighbors_to_fetch) == 0:
+            return [], "No neighbors to fetch"
+
         if NeighborTypeEnum.ANY in neighbor_types:
             neighbors = collection.get(
                 ids=neighbors_to_fetch,
