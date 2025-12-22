@@ -113,7 +113,7 @@ async def get_related_entities(
             neighbors_sorted = neighbors_sorted[:limit]
 
         logger.info(f"Neighbors: {len(neighbors_sorted)}")
-        context += f"Neighbors (sorted by combined metric importance) of Node: {node_id}, with name: {metadata['node']} kind: {metadata['kind']} located in: {metadata['uri']}:\n"
+        context += f"Neighbors (sorted by combined metric importance) of Node: {node_id}, with name: {metadata['label']} kind: {metadata['kind']} located in: {metadata['uri']}:\n"
 
         for i, (node_id, neighbors_metadata, _) in enumerate(neighbors_sorted):
             relations = relations_by_entity.get(node_id)
