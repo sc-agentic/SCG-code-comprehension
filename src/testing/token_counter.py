@@ -1,6 +1,12 @@
-from transformers import AutoTokenizer
 from functools import lru_cache
+
+import anthropic
 import tiktoken
+from dotenv import load_dotenv
+from transformers import AutoTokenizer
+
+load_dotenv()
+client = anthropic.Anthropic()
 
 
 @lru_cache(maxsize=1)
@@ -26,6 +32,13 @@ def count_tokens(text: str, model: str = "llama") -> int:
             raise ImportError("Failed to import GPT tokenizer")
         tokenizer = _get_gpt5_tokenizer()
         return len(tokenizer.encode(text))
+
+    elif model.lower() == "claude":
+        response = anthropic.messages.count_tokens(
+            model="claude-sonnet-4-5",
+            messages=[{"role": "user", "content": text}]
+        )
+        return response.input_tokens
 
     else:
         raise KeyError("Unsupported model type")

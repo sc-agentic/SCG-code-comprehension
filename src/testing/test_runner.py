@@ -6,8 +6,6 @@ from testing.evaluator import RAGEvaluator
 from testing.judge import judge_answer
 from testing.token_counter import count_tokens
 
-
-
 JUDGE_PROMPT = """You are an expert code reviewer.
 Your task is to compare two answers to the same question.
 
@@ -90,7 +88,7 @@ def evaluate_all(ground_truth_file: str) -> None:
                 context_str = "\n".join(claude_context)
             else:
                 context_str = str(claude_context)
-            q["claude_stats"]["context_tokens"] = count_tokens(context_str, "gpt5")
+            q["claude_stats"]["context_tokens"] = count_tokens(context_str, "claude")
         if junie_mcp:
             q["junie_stats"]["with_mcp"]["tokens"] = count_tokens(junie_mcp, "gpt5")
         if junie_mcp_context:
