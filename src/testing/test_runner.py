@@ -75,14 +75,22 @@ def evaluate_all(ground_truth_file: str) -> None:
                             result.get("winner")))
             q["comparisons"]["claude_vs_junie_mcp"] = result
             logger.info(f"[{q['id']}] Claude vs Junie MCP: {result['winner']}")
-        if junie_mcp and junie_nomcp:
-            result = compare_answers(question, junie_mcp, junie_nomcp)
-            result["winner"] = ({"A": "with_mcp", "B": "without_mcp"}
-                                .get(result.get("winner"),
-                                     result.get("winner")))
-            q["comparisons"]["mcp_vs_no_mcp"] = result
+            winner = result['winner']
+        if junie_mcp and junie_nomcp and claude:
+            if winner == "claude":
+                result = compare_answers(question, claude, junie_nomcp)
+                result["winner"] = ({"A": "claude", "B": "without_mcp"}
+                                    .get(result.get("winner"),
+                                         result.get("winner")))
+                q["comparisons"]["mcp_vs_no_mcp"] = result
+            else:
+                result = compare_answers(question, junie_mcp, junie_nomcp)
+                result["winner"] = ({"A": "junie_mcp", "B": "junie_nomcp"}
+                                    .get(result.get("winner"),
+                                         result.get("winner")))
+                q["comparisons"]["mcp_vs_no_mcp"] = result
         if claude:
-            q["claude_stats"]["tokens"] = count_tokens(claude, "gpt5")
+            q["claude_stats"]["tokens"] = count_tokens(claude, "claude")
         if claude_context:
             if isinstance(claude_context, list):
                 context_str = "\n".join(claude_context)
@@ -132,7 +140,7 @@ def add_ground_context(ground_truth_file: str, node_embedding_file: str) -> None
 
 def evaluate_rag_metrics(ground_truth_file: str):
     evaluator = RAGEvaluator(ground_truth_file)
-    with open("metrics_log.jsonl", "a", encoding="utf-8") as f_out:
+    with open("metrics_log_spark.jsonl", "a", encoding="utf-8") as f_out:
         for q in evaluator.test_suite.questions:
             question = q.question
             key_entities = q.key_entities
@@ -161,6 +169,6 @@ def evaluate_rag_metrics(ground_truth_file: str):
 
 
 if __name__ == "__main__":
-    # add_ground_context("ground_truth_killbill.json", "../../data/embeddings/node_embedding.json")
-    evaluate_rag_metrics("ground_truth_killbill.json")
-    # evaluate_all("ground_truth_killbill.json")
+    # add_ground_context("ground_truth_spark.json", "../../data/embeddings/node_embedding.json")
+    # evaluate_rag_metrics("rest_ground_truth.json")
+    evaluate_all("ground_truth_spark.json")

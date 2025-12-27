@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
-from loguru import logger
+
 from dotenv import load_dotenv
+from loguru import logger
 
 RAGAS_AVAILABLE = False
 llm = None
@@ -17,7 +18,7 @@ try:
     from langchain_openai import ChatOpenAI
     from ragas.llms import LangchainLLMWrapper
 
-    llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini"))
+    llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini", timeout=280.0, max_tokens=10000))
     RAGAS_AVAILABLE = True
     logger.info("RAGAS loaded")
 

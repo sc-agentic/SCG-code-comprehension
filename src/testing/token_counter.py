@@ -34,7 +34,7 @@ def count_tokens(text: str, model: str = "llama") -> int:
         return len(tokenizer.encode(text))
 
     elif model.lower() == "claude":
-        response = anthropic.messages.count_tokens(
+        response = client.messages.count_tokens(
             model="claude-sonnet-4-5",
             messages=[{"role": "user", "content": text}]
         )
