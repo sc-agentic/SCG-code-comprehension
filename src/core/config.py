@@ -1,5 +1,9 @@
 import os
 
+from transformers.models.clap.modeling_clap import ClapAudioEncoder
+
+from core.models import ClaudeStats
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(BASE_DIR)
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
@@ -14,17 +18,32 @@ NODE_CONTEXT_HISTORY = os.path.join(PROJECT_ROOT, "data", "embeddings", "node_co
 CODEBERT_MODEL_NAME = "microsoft/codebert-base"
 METRICS = "metrics_log_spark.jsonl"
 JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
-partition = "../../data/graph/partition.js"
-scg_test = "../../data/graph/scgTest.gdf"
-ccn_test = "../../data/graph/ccnTest.gdf"
 COMBINED_MAX = 997160
 
-projects = os.path.join(PROJECT_ROOT, "projects")
 embedding_model = "paraphrase-multilingual-MiniLM-L12-v2"
 
-RAGAS_MODEL = "gpt-4o-mini"
+GPT_MODEL = "gpt-4o-mini"
 RAGAS_TIMEOUT = 280.0
 RAGAS_MAX_TOKENS = 12000
 
-JUDGE_MODEL = "claude-sonnet-4-20250514"
-JUDGE_MAX_TOKENS = 500
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MAX_TOKENS = 500
+
+HTTP_TIMEOUT = 200.0
+CORS_ORIGINS = ["http://localhost:3000"]
+RAG_TIMEOUT = 60.0
+
+SCG_OUTPUT_FILE = "scgTest.gdf"
+CRUCIAL_OUTPUT_FILE = "crucial.html"
+PARTITION_OUTPUT_FILE = "partition.js"
+CCN_OUTPUT_FILE = "ccnTest.gdf"
+
+GRAPH_DIR = os.path.join(PROJECT_ROOT, "data", "graph")
+scg_test = os.path.join(GRAPH_DIR, SCG_OUTPUT_FILE)
+ccn_test = os.path.join(GRAPH_DIR, CCN_OUTPUT_FILE)
+partition = os.path.join(GRAPH_DIR, PARTITION_OUTPUT_FILE)
+
+GEMINI_RATE_LIMIT_DELAY = 5
+SERVER_URL = "http://127.0.0.1:8000"
+
+LLAMA_TOKENIZER_MODEL = "meta-llama/Llama-3.1-8B-Instruct"

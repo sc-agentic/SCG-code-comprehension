@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 from dotenv import load_dotenv
 from loguru import logger
 
-from src.core.config import RAGAS_MODEL, RAGAS_TIMEOUT, RAGAS_MAX_TOKENS
+from src.core.config import GPT_MODEL, RAGAS_TIMEOUT, RAGAS_MAX_TOKENS
 
 RAGAS_AVAILABLE = False
 llm = None
@@ -21,7 +21,7 @@ try:
     from ragas.llms import LangchainLLMWrapper
 
     llm = LangchainLLMWrapper(ChatOpenAI(
-        model=RAGAS_MODEL,
+        model=GPT_MODEL,
         timeout=RAGAS_TIMEOUT,
         max_tokens=RAGAS_MAX_TOKENS
     ))

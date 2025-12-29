@@ -32,6 +32,9 @@ def get_metric_value(node: Dict[str, Any], metric: str) -> float:
 
 
 def extract_json(text: str) -> dict:
+    """
+        Extract and parse a JSON object from text.
+    """
     match = re.search(r"\{[\s\S]*\}", text)
     if not match:
         raise ValueError("No JSON object found")

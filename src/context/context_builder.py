@@ -35,6 +35,18 @@ def adjust_category(
         confidence: float,
         nodes: List[Tuple[float, Dict[str, Any]]]
 ) -> Tuple[IntentCategory, str, float]:
+    """
+        Adjust category based on first node's kind when confidence is low.
+
+        Args:
+            intent_category: Original detected intent
+            category: Category string
+            confidence: Detection confidence (0.0-1.0)
+            nodes: Retrieved nodes
+
+        Returns:
+            Tuple of (adjusted_intent, adjusted_category, adjusted_confidence)
+        """
 
     if intent_category == IntentCategory.GENERAL and confidence < 0.7 and nodes:
         first_node = nodes[0][1]
@@ -103,6 +115,7 @@ def add_phase2_usage_nodes(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """Add usage-pattern nodes."""
     added = 0
     for score, node_data in remaining_nodes:
         if added >= category_nodes_limit:
@@ -136,6 +149,7 @@ def add_phase2_implementation_nodes(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """Add implementation nodes."""
     added = 0
     for score, node_data in remaining_nodes:
         if added >= category_nodes_limit:
@@ -156,6 +170,7 @@ def add_phase2_testing_nodes(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """Add test-related nodes prioritized by target class match."""
     added = 0
     target_class = extract_target_from_question(question)
     for score, node_data in remaining_nodes:
@@ -190,6 +205,7 @@ def add_phase2_definition_nodes(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """Add definition nodes."""
     added = 0
     for score, node_data in remaining_nodes:
         if added >= category_nodes_limit:
@@ -213,6 +229,7 @@ def add_phase2_exception_nodes(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """Add exception-handling nodes."""
     added = 0
     for score, node_data in remaining_nodes:
         if added >= category_nodes_limit:
@@ -236,6 +253,7 @@ def add_phase2_general_nodes(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """Add general-purpose nodes."""
     added = 0
     for score, node_data in remaining_nodes:
         if added >= category_nodes_limit:
@@ -262,6 +280,9 @@ def phase2(
         add_node_func,
         category_nodes_limit: int
 ) -> int:
+    """
+        Apply category-specific heuristics to add secondary context nodes.
+    """
     if category == "usage":
         return add_phase2_usage_nodes(remaining_nodes, target_method, add_node_func, category_nodes_limit)
     elif category == "implementation":

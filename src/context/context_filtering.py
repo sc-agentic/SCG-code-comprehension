@@ -6,8 +6,17 @@ MAX_EXCEPTION_LINES = 150
 MAX_TESTING_LINES = 300
 MAX_IMPLEMENTATION_LINES = 350
 
+MAX_GETTER_LINE_LENGTH = 50
+MAX_SETTER_LINE_LENGTH = 60
+MAX_RETURN_THIS_LENGTH = 30
+MAX_THIS_ASSIGNMENT_LENGTH = 40
+MAX_SCALA_FIELD_LENGTH = 40
+
 
 def is_scala(node_id: str) -> bool:
+    """
+        Check whether a node identifier represents Scala code.
+    """
     return "/" in node_id or node_id.endswith(".scala")
 
 def filter_definition_code(code: str, node_id: str, kind: str) -> str:
@@ -224,18 +233,18 @@ def filter_implementation_code(code: str, node_id: str) -> str:
         if not scala_mode:
             if line_stripped.startswith(("public ", "private ", "protected ")):
                 lower_line = line_stripped.lower()
-                if " get" in lower_line and "()" in line_stripped and len(line_stripped) < 50:
+                if " get" in lower_line and "()" in line_stripped and len(line_stripped) < MAX_GETTER_LINE_LENGTH:
                     continue
-                if " set" in lower_line and len(line_stripped) < 60:
+                if " set" in lower_line and len(line_stripped) < MAX_SETTER_LINE_LENGTH:
                     continue
             if line_stripped.startswith("return this.") and line_stripped.endswith(";"):
-                if len(line_stripped) < 30:
+                if len(line_stripped) < MAX_RETURN_THIS_LENGTH:
                     continue
-            if line_stripped.startswith("this.") and "=" in line_stripped and len(line_stripped) < 40:
+            if line_stripped.startswith("this.") and "=" in line_stripped and len(line_stripped) < MAX_THIS_ASSIGNMENT_LENGTH:
                 continue
         else:
             if re.match(r'^(override\s+)?(val|var)\s+\w+\s*:\s*\w+\s*=\s*\w+$', line_stripped):
-                if len(line_stripped) < 40:
+                if len(line_stripped) < MAX_SCALA_FIELD_LENGTH:
                     continue
 
         implementation_lines.append(line_stripped)

@@ -6,7 +6,7 @@ import httpx
 from dotenv import load_dotenv
 from loguru import logger
 
-from src.core.config import MODEL_NAME
+from src.core.config import MODEL_NAME, HTTP_TIMEOUT, GEMINI_RATE_LIMIT_DELAY
 
 current_file = Path(__file__)
 env_path = current_file.parent.parent / "testing" / ".env"
@@ -14,7 +14,7 @@ load_dotenv(dotenv_path=env_path)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-timeout = httpx.Timeout(200.0)
+timeout = httpx.Timeout(HTTP_TIMEOUT)
 client = httpx.AsyncClient(timeout=timeout)
 
 async def call_llm(prompt: str) -> str:
@@ -36,7 +36,7 @@ async def call_llm(prompt: str) -> str:
 
         if response.status_code == 429:
             logger.warning("Rate limit hit (429). Waiting 5s...")
-            await asyncio.sleep(5)
+            await asyncio.sleep(GEMINI_RATE_LIMIT_DELAY)
             return "1"
 
         response.raise_for_status()

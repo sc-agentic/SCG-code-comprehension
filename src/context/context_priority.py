@@ -1,6 +1,8 @@
 from typing import Any, Dict
 
 MIN_CODE_LENGTH = 30
+CODE_BONUS_MIN_LENGTH = 500
+IMPLEMENTATION_MIN_LENGTH = 200
 
 
 def get_node_priority_score(node_data: Dict[str, Any], category: str) -> float:
@@ -46,7 +48,7 @@ def get_node_priority_score(node_data: Dict[str, Any], category: str) -> float:
         if "public class" in code:
             score += 5
     elif category == "implementation":
-        if kind == "METHOD" and len(code) > 200:
+        if kind == "METHOD" and len(code) > IMPLEMENTATION_MIN_LENGTH:
             score += 8
         elif kind == "CONSTRUCTOR":
             score += 6
@@ -65,7 +67,7 @@ def get_node_priority_score(node_data: Dict[str, Any], category: str) -> float:
         elif "throw" in code.lower() or "catch" in code.lower():
             score += 8
 
-    if len(code) > 500:
+    if len(code) > CODE_BONUS_MIN_LENGTH:
         score += 2
     elif len(code) < MIN_CODE_LENGTH:
         score -= 3

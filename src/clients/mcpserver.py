@@ -3,6 +3,7 @@ from typing import List
 import httpx
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
+from src.core.config import HTTP_TIMEOUT, SERVER_URL
 
 mcp = FastMCP("scg-context")
 
@@ -23,9 +24,9 @@ async def call_fastapi(endpoint: str, question: str, params) -> str:
     """
     logger.info("GOT QUESTION: {}", question)
     try:
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             response = await client.post(
-                f"http://127.0.0.1:8000/{endpoint}",
+                f"{SERVER_URL}/{endpoint}",
                 json={"question": question, "params": params},
             )
             response.raise_for_status()

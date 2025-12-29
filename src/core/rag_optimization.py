@@ -53,6 +53,9 @@ def _get_cached_model() -> bool:
 _model = None
 
 def _get_model():
+    """
+        Return a cached SentenceTransformer model instance.
+    """
     global _model
     if _model is None:
         _model = SentenceTransformer(embedding_model)

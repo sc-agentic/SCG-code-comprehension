@@ -144,6 +144,12 @@ def identify_target_entity(unique_results: List[Tuple[float, Dict[str, Any]]]) -
 
 
 def is_child_of(node_id_parent, node_id_candidate):
+    """
+        Check whether a node identifier is a child of another node.
+
+        A child node is identified by sharing the same base identifier
+        before '#' or '?' separators.
+        """
     for sep in ["#", "?"]:
         if sep in node_id_candidate:
             parent, _ = node_id_candidate.split(sep, 1)

@@ -13,12 +13,27 @@ from src.core.config import (
     default_collection_name,
     partition,
     scg_test,
+    SCG_OUTPUT_FILE,
+    CRUCIAL_OUTPUT_FILE,
+    PARTITION_OUTPUT_FILE,
+    NODE_EMBEDDINGS
 )
 from src.graph.generate_embeddings_graph import generate_embeddings_graph, node_to_text
 from src.graph.load_graph import extract_scores, load_gdf
 
 
 def run_scg_cli(project_path: Path, output_folder: Path):
+    """
+        Run SCG CLI commands to generate graph and crucial nodes files.
+
+        Executes SCG CLI to:
+        1. Export SCG graph in GDF format
+        2. Generate crucial nodes analysis
+
+        Args:
+            project_path: Path to the project to analyze
+            output_folder: Destination folder for generated files
+        """
     output_folder.mkdir(parents=True, exist_ok=True)
     project_parent = project_path.parent
     project_name = project_path.name
@@ -32,7 +47,7 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     subprocess.run(scg_cmd, check=True, cwd=project_path, shell=True)
 
     generated_scg_file = project_parent / f"{project_name}.gdf"
-    moved_scg = output_folder / "scgTest.gdf"
+    moved_scg = output_folder / SCG_OUTPUT_FILE
     if generated_scg_file.exists():
         shutil.move(str(generated_scg_file), str(moved_scg))
         logger.info(f"SCG graph moved to {moved_scg}")
@@ -43,10 +58,10 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     logger.info(f"Running: {' '.join(crucial_cmd)}")
     subprocess.run(crucial_cmd, check=True, cwd=project_path.parent, shell=True)
 
-    generated_crucial_file = project_parent / "crucial.html"
-    generated_partition_file = project_parent / "partition.js"
-    moved_crucial = output_folder / "crucial.html"
-    moved_partition = output_folder / "partition.js"
+    generated_crucial_file = project_parent / CRUCIAL_OUTPUT_FILE
+    generated_partition_file = project_parent / PARTITION_OUTPUT_FILE
+    moved_crucial = output_folder / CRUCIAL_OUTPUT_FILE
+    moved_partition = output_folder / PARTITION_OUTPUT_FILE
     if generated_crucial_file.exists():
         shutil.move(str(generated_crucial_file), str(moved_crucial))
         logger.info(f"Crucial nodes file moved to {moved_crucial}")
@@ -76,19 +91,18 @@ def load_graph_main() -> None:
 
 def generate_embeddings_graph_main(project_path: Path) -> None:
     """
-    Generates graph node embeddings and stores them in a Chroma collection.
+    Generate graph node embeddings and store them in ChromaDB.
 
-    Loads SCG and CCN graphs, computes importance scores, builds reverse mappings
-    for node relationships, converts nodes to textual representations, and generates
-    embeddings using the configured CodeBERT model.
-    Each node and its metadata (including structural metrics and related entities)
-    are then stored in the Chroma vector database.
+    Pipeline steps:
+    1. Load SCG graph and extract importance scores
+    2. Convert nodes to textual representations
+    3. Generate embeddings using CodeBERT
+    4. Store embeddings in ChromaDB with metadata
+    5. Save embeddings to JSON file
+    6. Update COMBINED_MAX in config
 
-    Returns:
-        None
-
-    Raises:
-        Exception: If embedding generation or data insertion into the Chroma collection fails.
+    Args:
+        project_path: Path to the analyzed project (for code extraction)
     """
     scg = load_gdf(scg_test)
     importance_scores = extract_scores(partition)
@@ -122,12 +136,12 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
         related_entities = []
         for neighbor_id in set(scg.successors(node_id)) | set(scg.predecessors(node_id)):
             if scg.has_edge(node_id, neighbor_id):
-                type = scg[node_id][neighbor_id].get("type", "")
-                related_entities.append([neighbor_id, type])
+                edge_type = scg[node_id][neighbor_id].get("type", "")
+                related_entities.append([neighbor_id, edge_type])
 
             if scg.has_edge(neighbor_id, node_id):
-                type = scg[neighbor_id][node_id].get("type", "")
-                related_entities.append([neighbor_id, type + "_BY"])
+                edge_type = scg[neighbor_id][node_id].get("type", "")
+                related_entities.append([neighbor_id, edge_type + "_BY"])
 
         related_entities = sorted(
             related_entities,
@@ -165,15 +179,16 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
             )
         except Exception as e:
             logger.error(f"Failed to add {node_id}: {str(e)}")
-    with open("../../data/embeddings/node_embedding.json", "w", encoding="utf-8") as f:
+    with open(NODE_EMBEDDINGS, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
 
-    with open("../core/config.py", "r") as f:
+    config_path = Path(__file__).parent.parent / "core" / "config.py"
+    with open(config_path, "r") as f:
         content = f.read()
 
     new_max_combined = re.sub(r'COMBINED_MAX\s*=\s*\d+', f'COMBINED_MAX = {max_combined}', content)
 
-    with open("../core/config.py", "w") as f:
+    with open(config_path, "w") as f:
         f.write(new_max_combined)
 
 if __name__ == "__main__":

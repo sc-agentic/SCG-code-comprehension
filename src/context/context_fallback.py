@@ -7,7 +7,9 @@ from typing import Any, Optional
 MIN_CODE_LENGTH = 100
 MAX_CONTEXT_CHARS = 50000
 FALLBACK_CACHE_DURATION = 300
-
+FALLBACK_CANDIDATES_LIMIT = 10
+METHOD_MIN_LENGTH_FOR_BOOST = 200
+FALLBACK_NODE_LIMIT = 100
 
 _context_cache = {"fallback": None, "timestamp": 0, "stats": {"hits": 0, "misses": 0}}
 
@@ -61,7 +63,7 @@ def build_fallback_context(collection: Optional[Any] = None) -> str:
             kind = meta.get("kind", "")
             if kind == "CLASS":
                 importance += 2.0
-            elif kind == "METHOD" and len(doc) > 200:
+            elif kind == "METHOD" and len(doc) > METHOD_MIN_LENGTH_FOR_BOOST:
                 importance += 1.0
             elif "controller" in node_id.lower():
                 importance += 3.0
@@ -79,7 +81,7 @@ def build_fallback_context(collection: Optional[Any] = None) -> str:
         current_chars = 0
         max_fallback_chars = MAX_CONTEXT_CHARS // 2
 
-        for importance, node_id, doc, meta in candidates[:10]:
+        for importance, node_id, doc, meta in candidates[:FALLBACK_CANDIDATES_LIMIT]:
             kind = meta.get("kind", "CODE")
             section = f"## {kind}: {node_id}\n{doc.strip()}"
             section_chars = len(section)
@@ -99,7 +101,7 @@ def build_fallback_context(collection: Optional[Any] = None) -> str:
 
     except Exception as e:
         logger.error(f"Error building fallback context: {e}")
-        error_context = f"<CONTEXT BUILD ERROR: {str(e)[:100]}>"
+        error_context = f"<CONTEXT BUILD ERROR: {str(e)[:FALLBACK_NODE_LIMIT]}>"
         _context_cache["fallback"] = error_context
         _context_cache["timestamp"] = current_time
         return error_context

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from typing import Optional
 
-from src.core.config import JUDGE_MODEL, JUDGE_MAX_TOKENS
+from src.core.config import CLAUDE_MODEL, CLAUDE_MAX_TOKENS
 
 load_dotenv()
 
@@ -41,8 +41,8 @@ def judge_answer(prompt: str) -> Optional[str]:
         """
     try:
         message = client.messages.create(
-            model=JUDGE_MODEL,
-            max_tokens=JUDGE_MAX_TOKENS,
+            model=CLAUDE_MODEL,
+            max_tokens=CLAUDE_MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}])
         model_response = message.content[0].text.strip()
         clean_response = clean_json(model_response)
