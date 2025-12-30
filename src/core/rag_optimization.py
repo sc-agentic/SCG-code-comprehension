@@ -1,11 +1,10 @@
 from typing import Optional, Tuple
 
 import torch
+from sentence_transformers import SentenceTransformer
 from transformers import AutoModel, AutoTokenizer
 
 from src.core.config import CODEBERT_MODEL_NAME, embedding_model
-
-from sentence_transformers import SentenceTransformer
 
 _codebert_model: Optional[AutoModel] = None
 _codebert_tokenzier: Optional[AutoTokenizer] = None
@@ -52,9 +51,10 @@ def _get_cached_model() -> bool:
 
 _model = None
 
+
 def _get_model():
     """
-        Return a cached SentenceTransformer model instance.
+    Return a cached SentenceTransformer model instance.
     """
     global _model
     if _model is None:

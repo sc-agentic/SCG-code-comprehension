@@ -1,4 +1,5 @@
 from functools import lru_cache
+
 from loguru import logger
 
 _graph_model = None

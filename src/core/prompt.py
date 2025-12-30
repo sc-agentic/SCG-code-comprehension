@@ -27,14 +27,14 @@ def get_task_instructions(intent_category: IntentCategory) -> str:
     The provided code is your only source of truth.
     """
 
-
     if intent_category == IntentCategory.USAGE:
         return f"""{base_role}
     Task:
     Find where the requested code element is used in the provided code.
 
     Rules:
-    1) Use only identifiers exactly as they appear in the code (class names, method names, annotations).
+    1) Use only identifiers exactly as they appear 
+     in the code (class names, method names, annotations).
      Do not rephrase them.
     2) Report usage only if the call/reference is explicitly visible in the code.
     3) If a test calls it, report the exact test class and exact test method name (only if visible).
@@ -51,8 +51,6 @@ def get_task_instructions(intent_category: IntentCategory) -> str:
     - HTTP mapping annotations, if present
     (Only include items that are visible in the code.)
     """
-
-
 
     elif intent_category == IntentCategory.DEFINITION:
         return f"""{base_role}
@@ -149,7 +147,8 @@ def get_task_instructions(intent_category: IntentCategory) -> str:
     Rules:
     1) Return only names of classes or methods as they appear in the context.
     2) Keep the same order as they appear in the context.
-    3) Number each item (1., 2., 3., ...). For each item include any parameters attached to it in the context.
+    3) Number each item (1., 2., 3., ...). For each item include 
+        any parameters attached to it in the context.
     4) If no names are visible, return exactly: "<NO NAMES FOUND>"
 
     Output:

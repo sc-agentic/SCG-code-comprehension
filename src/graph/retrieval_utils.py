@@ -32,7 +32,10 @@ def get_embedding_inputs(pairs: List[Tuple[str, str]], question: str) -> List[st
 
 
 def query_embeddings(
-        collection: Any, query_embeddings: List[Any], embeddings_input: List[str], pairs: List[Tuple[str, str]]
+    collection: Any,
+    query_embeddings: List[Any],
+    embeddings_input: List[str],
+    pairs: List[Tuple[str, str]],
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Queries ChromaDB with embeddings and returns results.
@@ -58,7 +61,7 @@ def query_embeddings(
             query_embeddings=[emb],
             n_results=1,
             include=["embeddings", "metadatas", "documents", "distances"],
-            where={"kind": pairs[i][0].upper()}
+            where={"kind": pairs[i][0].upper()},
         )
         for j in range(len(query_result["ids"][0])):
             score = 1 - query_result["distances"][0][j]
@@ -145,17 +148,18 @@ def identify_target_entity(unique_results: List[Tuple[float, Dict[str, Any]]]) -
 
 def is_child_of(node_id_parent, node_id_candidate):
     """
-        Check whether a node identifier is a child of another node.
+    Check whether a node identifier is a child of another node.
 
-        A child node is identified by sharing the same base identifier
-        before '#' or '?' separators.
-        """
+    A child node is identified by sharing the same base identifier
+    before '#' or '?' separators.
+    """
     for sep in ["#", "?"]:
         if sep in node_id_candidate:
             parent, _ = node_id_candidate.split(sep, 1)
             if parent == node_id_parent:
                 return True
     return node_id_candidate == node_id_parent
+
 
 def expand_usage_results(
     unique_results: List[Tuple[float, Dict[str, Any]]],
@@ -188,8 +192,8 @@ def expand_definition_neighbors(
     unique_results: List[Tuple[float, Dict[str, Any]]],
     collection: Any,
     max_neighbors: int,
-        neighbor_types: List[NeighborTypeEnum] = [NeighborTypeEnum.ANY],
-        relation_types: List[RelationTypes] = [RelationTypes.ANY]
+    neighbor_types: List[NeighborTypeEnum] = [NeighborTypeEnum.ANY],
+    relation_types: List[RelationTypes] = [RelationTypes.ANY],
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Expands definition results with neighbors if single object query.
@@ -224,7 +228,9 @@ def expand_definition_neighbors(
 
         for entity_id, relation in related_entities:
             if entity_id not in seen and (
-                    RelationTypes[relation.upper()] in relation_types or RelationTypes.ANY in relation_types):
+                RelationTypes[relation.upper()] in relation_types
+                or RelationTypes.ANY in relation_types
+            ):
                 seen.add(entity_id)
                 neighbors_to_fetch.append(entity_id)
 
@@ -239,9 +245,7 @@ def expand_definition_neighbors(
             zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])
         )
         combined_neighbors = sorted(
-            combined_neighbors,
-            key=lambda x: x[1].get("combined", 0),
-            reverse=True
+            combined_neighbors, key=lambda x: x[1].get("combined", 0), reverse=True
         )
 
         for neighbor_id, neighbor_metadata, neighbor_doc in combined_neighbors:
@@ -250,15 +254,27 @@ def expand_definition_neighbors(
 
             neighbor_kind = neighbor_metadata.get("kind", "")
 
-            if NeighborTypeEnum.ANY not in neighbor_types and NeighborTypeEnum[
-                neighbor_kind.upper()] not in neighbor_types:
+            if (
+                NeighborTypeEnum.ANY not in neighbor_types
+                and NeighborTypeEnum[neighbor_kind.upper()] not in neighbor_types
+            ):
                 continue
 
-            if (parent_kind == "CLASS" and is_child_of(node_id, neighbor_id)) or neighbor_id in added_nodes:
+            if (
+                parent_kind == "CLASS" and is_child_of(node_id, neighbor_id)
+            ) or neighbor_id in added_nodes:
                 continue
 
             top_nodes.append(
-                (node_score, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc or ""}))
+                (
+                    node_score,
+                    {
+                        "node": neighbor_id,
+                        "metadata": neighbor_metadata,
+                        "code": neighbor_doc or "",
+                    },
+                )
+            )
             added_nodes.add(neighbor_id)
             neighbors_added += 1
 

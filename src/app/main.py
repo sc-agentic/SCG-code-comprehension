@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,18 +13,14 @@ from graph.specific_nodes import get_specific_nodes_context
 from graph.top_nodes import get_top_nodes_context
 from src.core.config import (
     CODEBERT_MODEL_NAME,
-    HTTP_TIMEOUT,
     CORS_ORIGINS,
+    HTTP_TIMEOUT,
     RAG_TIMEOUT,
 )
 from src.core.intent_analyzer import get_intent_analyzer
 from src.core.models import AskRequest
-
-
 from src.core.prompt import build_prompt
 from testing.token_counter import count_tokens
-
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,7 +36,6 @@ app.add_middleware(
 
 timeout: httpx.Timeout = httpx.Timeout(HTTP_TIMEOUT)
 client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
-
 
 
 def warm_up_models() -> None:
@@ -64,60 +60,59 @@ def warm_up_models() -> None:
         logger.error(f"Model warmup failed: {e}")
 
 
-
 @app.post("/ask_specific_nodes")
 async def ask_specific_nodes(req: AskRequest):
     """
-        Retrieve context for specific named entities.
+    Retrieve context for specific named entities.
 
-        Args:
-            req: Request with question and optional params
+    Args:
+        req: Request with question and optional params
 
-        Returns:
-            Context from matched specific nodes
-        """
+    Returns:
+        Context from matched specific nodes
+    """
     return await retrieve_context(req.question, get_specific_nodes_context, req.params)
 
 
 @app.post("/ask_top_nodes")
 async def ask_top_nodes(req: AskRequest):
     """
-        Retrieve context from most important nodes in the graph.
+    Retrieve context from most important nodes in the graph.
 
-        Args:
-            req: Request with question and optional params
+    Args:
+        req: Request with question and optional params
 
-        Returns:
-            Context from top-ranked nodes by importance
-        """
+    Returns:
+        Context from top-ranked nodes by importance
+    """
     return await retrieve_context(req.question, get_top_nodes_context, req.params)
 
 
 @app.post("/ask_general_question")
 async def ask_general_question(req: AskRequest):
     """
-        Retrieve general graph context.
+    Retrieve general graph context.
 
-        Args:
-            req: Request with question and optional params
+    Args:
+        req: Request with question and optional params
 
-        Returns:
-            Context from semantically similar nodes
-        """
+    Returns:
+        Context from semantically similar nodes
+    """
     return await retrieve_context(req.question, get_general_nodes_context, req.params)
 
 
 @app.post("/list_related_entities")
 async def list_related_entities(req: AskRequest):
     """
-        Retrieve related entities from the knowledge graph.
+    Retrieve related entities from the knowledge graph.
 
-        Args:
-            req: Request with question and optional params
+    Args:
+        req: Request with question and optional params
 
-        Returns:
-            Context with related entities and their relationships
-        """
+    Returns:
+        Context with related entities and their relationships
+    """
     return await retrieve_context(req.question, get_related_entities, req.params)
 
 
@@ -204,7 +199,7 @@ async def retrieve_context(question: str, node_func, params: dict):
             "tokens": {
                 "context": context_tokens,
                 "prompt": prompt_tokens,
-            }
+            },
         }
 
     except Exception as e:

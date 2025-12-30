@@ -33,12 +33,13 @@ def get_metric_value(node: Dict[str, Any], metric: str) -> float:
 
 def extract_json(text: str) -> dict:
     """
-        Extract and parse a JSON object from text.
+    Extract and parse a JSON object from text.
     """
     match = re.search(r"\{[\s\S]*\}", text)
     if not match:
         raise ValueError("No JSON object found")
     return json.loads(match.group())
+
 
 async def get_top_nodes_context(
     question: str, analysis: IntentAnalysis, model_name: str, collection: Any, **params
@@ -79,14 +80,9 @@ async def get_top_nodes_context(
     where = None
 
     if NeighborTypeEnum.ANY not in kinds:
-        where = {
-            "kind": {"$in": [k.value for k in kinds]}
-        }
+        where = {"kind": {"$in": [k.value for k in kinds]}}
 
-    results = collection.get(
-        include=["metadatas", "documents"],
-        where=where
-    )
+    results = collection.get(include=["metadatas", "documents"], where=where)
 
     nodes = [
         {
@@ -97,12 +93,16 @@ async def get_top_nodes_context(
         }
         for i in range(len(results["ids"]))
     ]
-    if limit == 'all':
+    if limit == "all":
         top_nodes = [node for node in nodes if node["metric_value"] == exact_metric_value]
     else:
         top_nodes = sorted(
-            (node for node in nodes if
-             NeighborTypeEnum[node["metadata"].get("kind").upper()] in kinds or NeighborTypeEnum.ANY in kinds),
+            (
+                node
+                for node in nodes
+                if NeighborTypeEnum[node["metadata"].get("kind").upper()] in kinds
+                or NeighborTypeEnum.ANY in kinds
+            ),
             key=lambda n: n["metric_value"],
             reverse=(order.lower() == "desc"),
         )[:limit]
@@ -110,7 +110,10 @@ async def get_top_nodes_context(
     logger.debug(f"MODE: {query_mode}")
     if query_mode == QueryTopMode.LIST_ONLY:
         context = " ".join(
-            f"{node.get('metadata', {}).get('label', '')} - {node.get('metadata', '').get('kind', '')} - {node.get('metadata', '').get('uri', '')} - Metric value: {node.get('metric_value'):.2f}"
+            f"{node.get('metadata', {}).get('label', '')} - {
+                node.get('metadata', '').get('kind', '')
+            } - {node.get('metadata', '').get('uri', '')} - Metric value: {
+                node.get('metric_value'):.2f}"
             for node in top_nodes
         )
     else:
@@ -125,7 +128,9 @@ async def get_top_nodes_context(
             )
             for n in top_nodes
         ]
-        context = build_context(top_nodes, "definition", 1.0, len(top_nodes), question=question, target_method=None)
+        context = build_context(
+            top_nodes, "definition", 1.0, len(top_nodes), question=question, target_method=None
+        )
 
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000

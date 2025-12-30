@@ -3,8 +3,8 @@ from functools import lru_cache
 import anthropic
 import tiktoken
 from transformers import AutoTokenizer
-from src.core.config import LLAMA_TOKENIZER_MODEL, CLAUDE_MODEL, GPT_MODEL
 
+from src.core.config import CLAUDE_MODEL, GPT_MODEL, LLAMA_TOKENIZER_MODEL
 
 client = anthropic.Anthropic()
 
@@ -23,18 +23,18 @@ def _get_gpt5_tokenizer():
 
 def count_tokens(text: str, model: str = "llama") -> int:
     """
-        Count the number of tokens in a text for a given model.
+    Count the number of tokens in a text for a given model.
 
-        Args:
-            text: Input text to tokenize.
-            model: Model identifier.
+    Args:
+        text: Input text to tokenize.
+        model: Model identifier.
 
-        Returns:
-            Number of tokens in the input text.
+    Returns:
+        Number of tokens in the input text.
 
-        Raises:
-            KeyError: If the model type is unsupported.
-        """
+    Raises:
+        KeyError: If the model type is unsupported.
+    """
     if not text:
         return 0
 
@@ -50,8 +50,7 @@ def count_tokens(text: str, model: str = "llama") -> int:
 
     elif model.lower() == "claude":
         response = client.messages.count_tokens(
-            model=CLAUDE_MODEL,
-            messages=[{"role": "user", "content": text}]
+            model=CLAUDE_MODEL, messages=[{"role": "user", "content": text}]
         )
         return response.input_tokens
 

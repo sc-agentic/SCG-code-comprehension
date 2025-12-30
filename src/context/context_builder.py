@@ -11,8 +11,8 @@ from context.context_fallback import build_fallback_context
 from context.context_filtering import (
     filter_definition_code,
     filter_exception_code,
-    filter_testing_code,
     filter_implementation_code,
+    filter_testing_code,
 )
 from context.context_priority import (
     get_max_sections_for_category,
@@ -30,23 +30,23 @@ MAX_CODE_PREVIEW_LONG = 4000
 
 
 def adjust_category(
-        intent_category: IntentCategory,
-        category: str,
-        confidence: float,
-        nodes: List[Tuple[float, Dict[str, Any]]]
+    intent_category: IntentCategory,
+    category: str,
+    confidence: float,
+    nodes: List[Tuple[float, Dict[str, Any]]],
 ) -> Tuple[IntentCategory, str, float]:
     """
-        Adjust category based on first node's kind when confidence is low.
+    Adjust category based on first node's kind when confidence is low.
 
-        Args:
-            intent_category: Original detected intent
-            category: Category string
-            confidence: Detection confidence (0.0-1.0)
-            nodes: Retrieved nodes
+    Args:
+        intent_category: Original detected intent
+        category: Category string
+        confidence: Detection confidence (0.0-1.0)
+        nodes: Retrieved nodes
 
-        Returns:
-            Tuple of (adjusted_intent, adjusted_category, adjusted_confidence)
-        """
+    Returns:
+        Tuple of (adjusted_intent, adjusted_category, adjusted_confidence)
+    """
 
     if intent_category == IntentCategory.GENERAL and confidence < 0.7 and nodes:
         first_node = nodes[0][1]
@@ -58,12 +58,7 @@ def adjust_category(
     return intent_category, category, confidence
 
 
-def filter_code_for_category(
-        code: str,
-        node_id: str,
-        kind: str,
-        category: str
-) -> Tuple[str, str]:
+def filter_code_for_category(code: str, node_id: str, kind: str, category: str) -> Tuple[str, str]:
     """
     Filters code and creates header based on category.
 
@@ -110,10 +105,10 @@ def filter_code_for_category(
 
 
 def add_phase2_usage_nodes(
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        target_method: Optional[str],
-        add_node_func,
-        category_nodes_limit: int
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+    target_method: Optional[str],
+    add_node_func,
+    category_nodes_limit: int,
 ) -> int:
     """Add usage-pattern nodes."""
     added = 0
@@ -135,9 +130,10 @@ def add_phase2_usage_nodes(
                 if add_node_func(node_data_copy, "usage-pattern", priority=90):
                     added += 1
                 continue
-        if (("controller" in node_id and "test" not in node_id)
-                or ("service" in node_id and "test" not in node_id)
-                or kind == "METHOD"
+        if (
+            ("controller" in node_id and "test" not in node_id)
+            or ("service" in node_id and "test" not in node_id)
+            or kind == "METHOD"
         ):
             if add_node_func(node_data, "usage-pattern", priority=80):
                 added += 1
@@ -145,9 +141,7 @@ def add_phase2_usage_nodes(
 
 
 def add_phase2_implementation_nodes(
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        add_node_func,
-        category_nodes_limit: int
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
 ) -> int:
     """Add implementation nodes."""
     added = 0
@@ -156,19 +150,21 @@ def add_phase2_implementation_nodes(
             break
         kind = node_data.get("metadata", {}).get("kind", "")
         code = node_data.get("code", "")
-        if ((kind == "METHOD" and len(code) > 100)
-                or kind == "CONSTRUCTOR"
-                or "algorithm" in code.lower()):
+        if (
+            (kind == "METHOD" and len(code) > 100)
+            or kind == "CONSTRUCTOR"
+            or "algorithm" in code.lower()
+        ):
             if add_node_func(node_data, "implementation", priority=75):
                 added += 1
     return added
 
 
 def add_phase2_testing_nodes(
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        question: str,
-        add_node_func,
-        category_nodes_limit: int
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+    question: str,
+    add_node_func,
+    category_nodes_limit: int,
 ) -> int:
     """Add test-related nodes prioritized by target class match."""
     added = 0
@@ -186,11 +182,13 @@ def add_phase2_testing_nodes(
             elif kind == "CLASS" and "test" in node_id:
                 priority = 90
             elif kind == "METHOD" and any(
-                    w in node_data.get("metadata", {}).get("label", "").lower()
-                    for w in ["should", "test"]):
+                w in node_data.get("metadata", {}).get("label", "").lower()
+                for w in ["should", "test"]
+            ):
                 priority = 88
         elif kind == "METHOD" and (
-                "test" in node_id or "@test" in code.lower() or "should" in node_id):
+            "test" in node_id or "@test" in code.lower() or "should" in node_id
+        ):
             priority = 85
         elif kind == "CLASS" and "test" in node_id:
             priority = 82
@@ -201,9 +199,7 @@ def add_phase2_testing_nodes(
 
 
 def add_phase2_definition_nodes(
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        add_node_func,
-        category_nodes_limit: int
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
 ) -> int:
     """Add definition nodes."""
     added = 0
@@ -225,9 +221,7 @@ def add_phase2_definition_nodes(
 
 
 def add_phase2_exception_nodes(
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        add_node_func,
-        category_nodes_limit: int
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
 ) -> int:
     """Add exception-handling nodes."""
     added = 0
@@ -249,9 +243,7 @@ def add_phase2_exception_nodes(
 
 
 def add_phase2_general_nodes(
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        add_node_func,
-        category_nodes_limit: int
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]], add_node_func, category_nodes_limit: int
 ) -> int:
     """Add general-purpose nodes."""
     added = 0
@@ -273,22 +265,26 @@ def add_phase2_general_nodes(
 
 
 def phase2(
-        category: str,
-        remaining_nodes: List[Tuple[float, Dict[str, Any]]],
-        question: str,
-        target_method: Optional[str],
-        add_node_func,
-        category_nodes_limit: int
+    category: str,
+    remaining_nodes: List[Tuple[float, Dict[str, Any]]],
+    question: str,
+    target_method: Optional[str],
+    add_node_func,
+    category_nodes_limit: int,
 ) -> int:
     """
-        Apply category-specific heuristics to add secondary context nodes.
+    Apply category-specific heuristics to add secondary context nodes.
     """
     if category == "usage":
-        return add_phase2_usage_nodes(remaining_nodes, target_method, add_node_func, category_nodes_limit)
+        return add_phase2_usage_nodes(
+            remaining_nodes, target_method, add_node_func, category_nodes_limit
+        )
     elif category == "implementation":
         return add_phase2_implementation_nodes(remaining_nodes, add_node_func, category_nodes_limit)
     elif category == "testing":
-        return add_phase2_testing_nodes(remaining_nodes, question, add_node_func, category_nodes_limit)
+        return add_phase2_testing_nodes(
+            remaining_nodes, question, add_node_func, category_nodes_limit
+        )
     elif category == "definition":
         return add_phase2_definition_nodes(remaining_nodes, add_node_func, category_nodes_limit)
     elif category == "exception":
@@ -299,12 +295,12 @@ def phase2(
 
 
 def build_context(
-        nodes: List[Tuple[float, Dict[str, Any]]],
-        category: str,
-        confidence: float,
-        top_nodes_limit: int = 1,
-        question: str = "",
-        target_method: Optional[str] = None,
+    nodes: List[Tuple[float, Dict[str, Any]]],
+    category: str,
+    confidence: float,
+    top_nodes_limit: int = 1,
+    question: str = "",
+    target_method: Optional[str] = None,
 ) -> str:
     """
     Builds an intent-aware, token-bounded context string from retrieved nodes.
@@ -331,7 +327,8 @@ def build_context(
     except ValueError:
         intent_category = IntentCategory.GENERAL
     intent_category, category, confidence = adjust_category(
-        intent_category, category, confidence, nodes)
+        intent_category, category, confidence, nodes
+    )
     analyzer = get_intent_analyzer()
     limits = analyzer.get_context_limits(intent_category)
     max_context_chars = limits["max_chars"]
@@ -357,11 +354,11 @@ def build_context(
         metadata = node_data.get("metadata", {})
         kind = metadata.get("kind", "CODE")
         if (
-                not code
-                or len(code) < MIN_CODE_LENGTH
-                or code in seen_codes
-                or node_id in used_nodes
-                or code.startswith("<")
+            not code
+            or len(code) < MIN_CODE_LENGTH
+            or code in seen_codes
+            or node_id in used_nodes
+            or code.startswith("<")
         ):
             return False
         max_sections = get_max_sections_for_category(category)
@@ -376,7 +373,10 @@ def build_context(
         section_chars = len(full_section)
         if current_chars + section_chars <= max_context_chars - 50:
             logger.debug(
-                f"Current chars: {current_chars}, Section chars: {section_chars}, Max chars: {max_context_chars}")
+                f"Current chars: {current_chars}, "
+                f"Section chars: {section_chars},"
+                f" Max chars: {max_context_chars}"
+            )
             context_sections.append((priority, full_section))
             seen_codes.add(code)
             used_nodes.add(node_id)
@@ -387,6 +387,7 @@ def build_context(
 
         logger.debug(f"Not added {node_id} ({kind}), chars: {section_chars}")
         return False
+
     scored_nodes = []
     for score, node_data in nodes:
         priority_score = get_node_priority_score(node_data, category)
@@ -402,7 +403,7 @@ def build_context(
         logger.info(node_data.get("node", ""))
 
     added_base = 0
-    for score, node_data in scored_nodes[:base_nodes_limit * 2]:
+    for score, node_data in scored_nodes[: base_nodes_limit * 2]:
         if added_base >= base_nodes_limit:
             break
         if add_node_section(node_data, "top-match", priority=100):
@@ -412,7 +413,12 @@ def build_context(
     if category_nodes_limit > 0 and current_chars < max_context_chars * PHASE2_CHAR_THRESHOLD:
         remaining_nodes = [(s, n) for s, n in scored_nodes if n.get("node", "") not in used_nodes]
         added_category = phase2(
-            category, remaining_nodes, question, target_method, add_node_section, category_nodes_limit
+            category,
+            remaining_nodes,
+            question,
+            target_method,
+            add_node_section,
+            category_nodes_limit,
         )
         logger.debug(f"Phase 2: Added {added_category} category-specific nodes")
 

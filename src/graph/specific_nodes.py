@@ -4,15 +4,15 @@ from typing import Any, Dict, List, Tuple
 from loguru import logger
 
 from core.models import IntentAnalysis, IntentCategory
+from graph.model_cache import get_graph_model
 from graph.NeighborTypeEnum import NeighborTypeEnum
 from graph.RelationTypes import RelationTypes
-from graph.model_cache import get_graph_model
 from graph.reranking import rerank_results
 from graph.retrieval_utils import (
     deduplicate_results,
-    identify_target_entity,
-    expand_usage_results,
     expand_definition_neighbors,
+    expand_usage_results,
+    identify_target_entity,
 )
 
 
@@ -51,10 +51,13 @@ async def get_specific_nodes_context(
         relation_types = [relation_types]
     relation_types = [RelationTypes[type.upper()] for type in relation_types]
     logger.info(
-        f"TOP K: {top_k}, Max neighbors: {max_neighbors}, Neighbor types: {neighbor_types}, pairs: {pairs}, relation_types: {relation_types}")
+        f"TOP K: {top_k}, Max neighbors: {max_neighbors}, "
+        f"Neighbor types: {neighbor_types}, pairs: {pairs}, "
+        f"relation_types: {relation_types}"
+    )
     try:
+        from graph.retrieval_utils import get_embedding_inputs, query_embeddings
         from src.graph.generate_embeddings_graph import generate_embeddings_graph
-        from graph.retrieval_utils import query_embeddings, get_embedding_inputs
 
         try:
             from context.context_builder import build_context
@@ -80,7 +83,6 @@ async def get_specific_nodes_context(
         category = getattr(analysis, "primary_intent", IntentCategory.GENERAL)
         confidence = getattr(analysis, "confidence", 0.5)
 
-
         if category == IntentCategory.USAGE:
             logger.debug("Usage question. Searching in related_entities")
             target_entity = identify_target_entity(unique_results)
@@ -97,7 +99,12 @@ async def get_specific_nodes_context(
         )
 
         full_context = build_context(
-            top_nodes, category, confidence, len(pairs), question=question, target_method=target_entity
+            top_nodes,
+            category,
+            confidence,
+            len(pairs),
+            question=question,
+            target_method=target_entity,
         )
 
         logger.debug(f"Context built: {len(full_context)} chars")

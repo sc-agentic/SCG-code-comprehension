@@ -1,8 +1,7 @@
 import time
-
-from loguru import logger
 from typing import Any, Optional
 
+from loguru import logger
 
 MIN_CODE_LENGTH = 100
 MAX_CONTEXT_CHARS = 50000
@@ -96,7 +95,9 @@ def build_fallback_context(collection: Optional[Any] = None) -> str:
         _context_cache["fallback"] = result
         _context_cache["timestamp"] = current_time
 
-        logger.debug(f"Built fallback context: {current_chars} chars, {len(context_parts)} sections")
+        logger.debug(
+            f"Built fallback context: {current_chars} chars, {len(context_parts)} sections"
+        )
         return result
 
     except Exception as e:

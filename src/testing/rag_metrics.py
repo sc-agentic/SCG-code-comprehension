@@ -1,28 +1,27 @@
 from typing import Any, Dict, List
+
 from loguru import logger
 
-from src.core.config import GPT_MODEL, RAGAS_TIMEOUT, RAGAS_MAX_TOKENS
+from src.core.config import GPT_MODEL, RAGAS_MAX_TOKENS, RAGAS_TIMEOUT
 
 RAGAS_AVAILABLE = False
 llm = None
 
 try:
+    from datasets import Dataset
+    from langchain_openai import ChatOpenAI
     from ragas import evaluate
+    from ragas.llms import LangchainLLMWrapper
     from ragas.metrics import (
-        faithfulness,
         answer_relevancy,
         context_precision,
         context_recall,
+        faithfulness,
     )
-    from datasets import Dataset
-    from langchain_openai import ChatOpenAI
-    from ragas.llms import LangchainLLMWrapper
 
-    llm = LangchainLLMWrapper(ChatOpenAI(
-        model=GPT_MODEL,
-        timeout=RAGAS_TIMEOUT,
-        max_tokens=RAGAS_MAX_TOKENS
-    ))
+    llm = LangchainLLMWrapper(
+        ChatOpenAI(model=GPT_MODEL, timeout=RAGAS_TIMEOUT, max_tokens=RAGAS_MAX_TOKENS)
+    )
     RAGAS_AVAILABLE = True
 
 except ImportError as e:
@@ -30,7 +29,6 @@ except ImportError as e:
 
 
 class RAGMetrics:
-
     def __init__(self):
         """
         Initialize metrics.
@@ -38,12 +36,12 @@ class RAGMetrics:
         self.ragas_available = RAGAS_AVAILABLE
 
     def full_evaluation(
-            self,
-            question: str,
-            answer: str,
-            retrieved_contexts: List[str],
-            ground_truth_contexts: List[str],
-            key_entities: List[str] = None,
+        self,
+        question: str,
+        answer: str,
+        retrieved_contexts: List[str],
+        ground_truth_contexts: List[str],
+        key_entities: List[str] = None,
     ) -> Dict[str, Any]:
         """
         Full evaluation.
@@ -69,32 +67,44 @@ class RAGMetrics:
         if not self.ragas_available:
             return {
                 "ragas": {"error": "RAGAS not available"},
-                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)}}
+                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)},
+            }
         if not answer or not answer.strip():
             return {
                 "ragas": {"error": "Empty answer"},
-                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)}}
+                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)},
+            }
         if not ground_truth_contexts:
             return {
                 "ragas": {"error": "Missing ground_truth_contexts"},
-                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)}}
+                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)},
+            }
         ground_truth_str = " ".join(ground_truth_contexts)
         try:
-            dataset = Dataset.from_dict({
-                "question": [question],
-                "answer": [answer],
-                "contexts": [retrieved_contexts],
-                "ground_truth": [ground_truth_str]})
+            dataset = Dataset.from_dict(
+                {
+                    "question": [question],
+                    "answer": [answer],
+                    "contexts": [retrieved_contexts],
+                    "ground_truth": [ground_truth_str],
+                }
+            )
             results = evaluate(
                 dataset,
                 metrics=[faithfulness, answer_relevancy, context_recall, context_precision],
-                llm=llm)
+                llm=llm,
+            )
             df = results.to_pandas()
             faithfulness_score = float(df["faithfulness"].iloc[0])
             answer_relevance_score = float(df["answer_relevancy"].iloc[0])
             context_recall_score = float(df["context_recall"].iloc[0])
             context_precision_score = float(df["context_precision"].iloc[0])
-            scores = [faithfulness_score, answer_relevance_score, context_recall_score, context_precision_score]
+            scores = [
+                faithfulness_score,
+                answer_relevance_score,
+                context_recall_score,
+                context_precision_score,
+            ]
             if min(scores) > 0:
                 sum_scores = sum(1 / s for s in scores)
                 ragas_score = len(scores) / sum_scores
@@ -108,10 +118,11 @@ class RAGMetrics:
                     "answer_relevance": round(answer_relevance_score, 3),
                     "ragas_score": round(ragas_score, 3),
                 },
-                "optional_metrics": {
-                    "context_entity_recall": round(entity_recall, 3)}}
+                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)},
+            }
         except Exception as e:
             logger.error(f"RAGAS evaluation failed: {e}")
             return {
                 "ragas": {"error": str(e)},
-                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)}}
+                "optional_metrics": {"context_entity_recall": round(entity_recall, 3)},
+            }

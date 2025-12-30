@@ -9,14 +9,14 @@ from loguru import logger
 from src.clients.chroma_client import get_or_create_collection
 from src.core.config import (
     CODEBERT_MODEL_NAME,
+    CRUCIAL_OUTPUT_FILE,
+    NODE_EMBEDDINGS,
+    PARTITION_OUTPUT_FILE,
+    SCG_OUTPUT_FILE,
     default_chroma_path,
     default_collection_name,
     partition,
     scg_test,
-    SCG_OUTPUT_FILE,
-    CRUCIAL_OUTPUT_FILE,
-    PARTITION_OUTPUT_FILE,
-    NODE_EMBEDDINGS
 )
 from src.graph.generate_embeddings_graph import generate_embeddings_graph, node_to_text
 from src.graph.load_graph import extract_scores, load_gdf
@@ -24,16 +24,16 @@ from src.graph.load_graph import extract_scores, load_gdf
 
 def run_scg_cli(project_path: Path, output_folder: Path):
     """
-        Run SCG CLI commands to generate graph and crucial nodes files.
+    Run SCG CLI commands to generate graph and crucial nodes files.
 
-        Executes SCG CLI to:
-        1. Export SCG graph in GDF format
-        2. Generate crucial nodes analysis
+    Executes SCG CLI to:
+    1. Export SCG graph in GDF format
+    2. Generate crucial nodes analysis
 
-        Args:
-            project_path: Path to the project to analyze
-            output_folder: Destination folder for generated files
-        """
+    Args:
+        project_path: Path to the project to analyze
+        output_folder: Destination folder for generated files
+    """
     output_folder.mkdir(parents=True, exist_ok=True)
     project_parent = project_path.parent
     project_name = project_path.name
@@ -118,7 +118,7 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
                 "kind": node_text["kind"],
                 "label": node_text["label"],
                 "code": node_text["code"],
-                "uri": node_text["uri"]
+                "uri": node_text["uri"],
             }
         )
         texts_for_embedding.append(node_text["text"].lower())
@@ -186,10 +186,11 @@ def generate_embeddings_graph_main(project_path: Path) -> None:
     with open(config_path, "r") as f:
         content = f.read()
 
-    new_max_combined = re.sub(r'COMBINED_MAX\s*=\s*\d+', f'COMBINED_MAX = {max_combined}', content)
+    new_max_combined = re.sub(r"COMBINED_MAX\s*=\s*\d+", f"COMBINED_MAX = {max_combined}", content)
 
     with open(config_path, "w") as f:
         f.write(new_max_combined)
+
 
 if __name__ == "__main__":
     import argparse

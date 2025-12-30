@@ -16,7 +16,7 @@ max_usage_nodes_for_context = 3
 
 
 def _filter_candidates(
-        all_nodes: Dict[str, Any], keywords: List[str], kind_weights: Dict[str, float]
+    all_nodes: Dict[str, Any], keywords: List[str], kind_weights: Dict[str, float]
 ) -> List[Tuple[str, Dict[str, Any], str, float]]:
     """
     Filters and scores candidate nodes based on LLM analysis.
@@ -52,8 +52,7 @@ def _filter_candidates(
     return candidate_nodes
 
 
-async def _score_node(
-        question: str, node, code_snippet_limit: int) -> int:
+async def _score_node(question: str, node, code_snippet_limit: int) -> int:
     """
     Scores usefulness of node based of snippet of it's code.
 
@@ -68,7 +67,8 @@ async def _score_node(
     logger.info(f"Scoring node: {node[0]}")
     snippet = "\n".join(node[2].splitlines())[:code_snippet_limit]
     prompt = f"""
-    You are a technical code analyzer. Your task is to rate the relevance of a Scala or Java code based on given question.
+    You are a technical code analyzer. Your task is to rate 
+    the relevance of a Scala or Java code based on given question.
 
     Question: '{question}'
 
@@ -99,6 +99,7 @@ async def _score_node(
     except Exception as e:
         logger.exception(f"ERROR in scoring node: {e}")
         return 1
+
 
 def expand_node_with_neighbors(
     node_id: str,
@@ -137,23 +138,16 @@ def expand_node_with_neighbors(
 
     neighbors = collection.get(ids=neighbors_to_fetch, include=["metadatas", "documents"])
 
-    combined_neighbors = list(
-        zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])
-    )
+    combined_neighbors = list(zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"]))
     combined_neighbors = sorted(
-        combined_neighbors,
-        key=lambda x: x[1].get("combined", 0),
-        reverse=True
+        combined_neighbors, key=lambda x: x[1].get("combined", 0), reverse=True
     )
 
     neighbors_data = []
     for neighbor_id, neighbor_metadata, neighbor_doc in combined_neighbors:
         if neighbor_id in seen_nodes:
             continue
-        if (
-            metadata.get("kind") == "CLASS"
-                and is_child_of(node_id, neighbor_id)
-        ):
+        if metadata.get("kind") == "CLASS" and is_child_of(node_id, neighbor_id):
             continue
         neighbors_data.append(
             (-1, {"node": neighbor_id, "metadata": neighbor_metadata, "code": neighbor_doc})
@@ -167,7 +161,7 @@ async def get_general_nodes_context(
     analysis: IntentAnalysis,
     model_name: str,
     collection: Any,
-        code_snippet_limit: int = 1200,
+    code_snippet_limit: int = 1200,
     **params,
 ) -> None | tuple[list[Any], str] | list[tuple[int, dict[str, Any]]]:
     """
@@ -226,8 +220,7 @@ async def get_general_nodes_context(
             reverse=True,
         )[:top_k]
         return [
-            (1, {"node": nid, "metadata": meta, "code": doc})
-            for nid, meta, doc in fallback_nodes
+            (1, {"node": nid, "metadata": meta, "code": doc}) for nid, meta, doc in fallback_nodes
         ]
 
     candidates_sorted = sorted(candidate_nodes, key=lambda x: x[3], reverse=True)[: top_k * 2]
@@ -290,7 +283,12 @@ async def get_general_nodes_context(
     confidence = getattr(analysis, "confidence", 0.5)
 
     full_context = build_context(
-        final_top_nodes, category, confidence, top_nodes_length, question=question, target_method=None
+        final_top_nodes,
+        category,
+        confidence,
+        top_nodes_length,
+        question=question,
+        target_method=None,
     )
 
     end_time = time.time()

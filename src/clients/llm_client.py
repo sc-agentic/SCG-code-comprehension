@@ -1,16 +1,13 @@
 import asyncio
-import os
-from pathlib import Path
 
 import httpx
 from loguru import logger
 
-from src.core.config import MODEL_NAME, HTTP_TIMEOUT, GEMINI_RATE_LIMIT_DELAY, GEMINI_API_KEY
-
-
+from src.core.config import GEMINI_API_KEY, GEMINI_RATE_LIMIT_DELAY, HTTP_TIMEOUT, MODEL_NAME
 
 timeout = httpx.Timeout(HTTP_TIMEOUT)
 client = httpx.AsyncClient(timeout=timeout)
+
 
 async def call_llm(prompt: str) -> str:
     if not GEMINI_API_KEY:
@@ -23,7 +20,7 @@ async def call_llm(prompt: str) -> str:
         "generationConfig": {
             "temperature": 0.3,
             "maxOutputTokens": 100,
-        }
+        },
     }
 
     try:

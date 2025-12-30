@@ -5,19 +5,19 @@ from typing import Any, Dict, List, Tuple
 from loguru import logger
 
 from core.models import IntentAnalysis
-from graph.NeighborTypeEnum import NeighborTypeEnum
-from graph.RelationTypes import RelationTypes
 from graph.generate_embeddings_graph import generate_embeddings_graph
 from graph.model_cache import get_graph_model
+from graph.NeighborTypeEnum import NeighborTypeEnum
+from graph.RelationTypes import RelationTypes
 from graph.retrieval_utils import get_embedding_inputs, query_embeddings
 
 
 async def get_related_entities(
-        question: str,
-        analysis: IntentAnalysis,
-        model_name: str,
-        collection: Any,
-        **params,
+    question: str,
+    analysis: IntentAnalysis,
+    model_name: str,
+    collection: Any,
+    **params,
 ) -> Tuple[List[Tuple[float, Dict[str, Any]]], str]:
     """
     Find nodes included in user question
@@ -49,7 +49,6 @@ async def get_related_entities(
         neighbor_types = [neighbor_types]
     relation_types = [RelationTypes[relation_type.upper()] for relation_type in relation_types]
 
-
     logger.debug(f"Question: '{question}'")
     logger.debug(f"Extracted pairs: {pairs}")
 
@@ -63,11 +62,7 @@ async def get_related_entities(
 
     context = ""
 
-    neighbor_type_filter = [
-        nt.value.upper()
-        for nt in neighbor_types
-        if nt != NeighborTypeEnum.ANY
-    ]
+    neighbor_type_filter = [nt.value.upper() for nt in neighbor_types if nt != NeighborTypeEnum.ANY]
 
     for result in results:
         node_id = result[1]["node"]
@@ -81,7 +76,10 @@ async def get_related_entities(
         relations_by_entity = defaultdict(list)
 
         for entity_id, relation in related_entities:
-            if RelationTypes[relation.upper()] in relation_types or RelationTypes.ANY in relation_types:
+            if (
+                RelationTypes[relation.upper()] in relation_types
+                or RelationTypes.ANY in relation_types
+            ):
                 relations_by_entity[entity_id].append(relation)
 
         neighbors_to_fetch = list(relations_by_entity.keys())
@@ -101,12 +99,12 @@ async def get_related_entities(
                 where={"kind": {"$in": neighbor_type_filter}},
             )
 
-        combined_neighbors = list(zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"]))
+        combined_neighbors = list(
+            zip(neighbors["ids"], neighbors["metadatas"], neighbors["documents"])
+        )
 
         neighbors_sorted = sorted(
-            combined_neighbors,
-            key=lambda x: x[1].get("combined", 0),
-            reverse=True
+            combined_neighbors, key=lambda x: x[1].get("combined", 0), reverse=True
         )
 
         if limit == "all":
@@ -115,11 +113,21 @@ async def get_related_entities(
             neighbors_sorted = neighbors_sorted[:limit]
 
         logger.info(f"Neighbors: {len(neighbors_sorted)}")
-        context += f"Neighbors (sorted by combined metric importance) of Node: {node_id}, with name: {metadata['label']} kind: {metadata['kind']} located in: {metadata['uri']}:\n"
+        context += (
+            f"Neighbors (sorted by combined metric importance) of Node: {node_id}, "
+            f"with name: {metadata['label']} "
+            f"kind: {metadata['kind']} located in: {metadata['uri']}:\n"
+        )
 
         for i, (node_id, neighbors_metadata, _) in enumerate(neighbors_sorted):
             relations = relations_by_entity.get(node_id)
-            context += f"{i + 1}.Node_id: {node_id}, name: {neighbors_metadata.get('label', '')}, kind: {neighbors_metadata.get('kind', '')}, uri: {neighbors_metadata.get('uri', '')}, relations: {', '.join(relations)}\n"
+            context += (
+                f"{i + 1}.Node_id: {node_id}, "
+                f"name: {neighbors_metadata.get('label', '')},"
+                f" kind: {neighbors_metadata.get('kind', '')}, "
+                f"uri: {neighbors_metadata.get('uri', '')}, "
+                f"relations: {', '.join(relations)}\n"
+            )
 
     logger.info(f"Context: {context}")
     return [], context or "<NO CONTEXT FOUND>"

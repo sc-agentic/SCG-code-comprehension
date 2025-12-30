@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from src.core.intent_analyzer import IntentCategory
 from core.models import IntentAnalysis
+from src.core.intent_analyzer import IntentCategory
 
 
 def extract_target_class_name(query: str) -> Optional[str]:
@@ -277,7 +277,7 @@ def general_factors(
 
 
 def rerank_results(
-        query: str, nodes: List[Tuple[float, Dict[str, Any]]], analysis: IntentAnalysis
+    query: str, nodes: List[Tuple[float, Dict[str, Any]]], analysis: IntentAnalysis
 ) -> List[Tuple[float, Dict[str, Any]]]:
     """
     Reranks retrieved nodes based on intent category and various heuristics.

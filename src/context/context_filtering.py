@@ -15,9 +15,10 @@ MAX_SCALA_FIELD_LENGTH = 40
 
 def is_scala(node_id: str) -> bool:
     """
-        Check whether a node identifier represents Scala code.
+    Check whether a node identifier represents Scala code.
     """
     return "/" in node_id or node_id.endswith(".scala")
+
 
 def filter_definition_code(code: str, node_id: str, kind: str) -> str:
     """
@@ -55,19 +56,23 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
 
     for line in lines:
         line_clean = line.strip()
-        line_clean = re.sub(r'^/\*\*?\s*', '', line_clean)
-        line_clean = re.sub(r'\*/', '', line_clean)
+        line_clean = re.sub(r"^/\*\*?\s*", "", line_clean)
+        line_clean = re.sub(r"\*/", "", line_clean)
         if not line_clean or line_clean.startswith("//"):
             continue
         if line_clean.startswith("@"):
             definition_lines.append(line_clean)
             continue
-        if ("class " in line_clean or "interface " in line_clean or
-                "trait " in line_clean or "object " in line_clean):
+        if (
+            "class " in line_clean
+            or "interface " in line_clean
+            or "trait " in line_clean
+            or "object " in line_clean
+        ):
             definition_lines.append(line_clean)
             continue
         if scala_mode:
-            if re.search(r'\bdef\s+[\w<\[]+', line_clean) or line_clean.startswith("def this("):
+            if re.search(r"\bdef\s+[\w<\[]+", line_clean) or line_clean.startswith("def this("):
                 signature = line_clean.split("=")[0].strip()
                 if not signature.endswith(";"):
                     signature += ";"
@@ -116,8 +121,8 @@ def filter_exception_code(code: str, node_id: str) -> str:
 
     for line in lines:
         line_clean = line.strip()
-        line_clean = re.sub(r'^/\*\*?\s*', '', line_clean)
-        line_clean = re.sub(r'\*/', '', line_clean)
+        line_clean = re.sub(r"^/\*\*?\s*", "", line_clean)
+        line_clean = re.sub(r"\*/", "", line_clean)
         if not line_clean or line_clean.startswith("//"):
             continue
         if "throw new" in line_clean or "orElseThrow(" in line_clean:
@@ -181,7 +186,9 @@ def filter_testing_code(code: str, node_id: str) -> str:
     scala_mode = is_scala(node_id)
 
     if scala_mode:
-        test_keywords.extend(["mustBe", "shouldBe", "shouldEqual", "contain", "intercept[", "assertResult"])
+        test_keywords.extend(
+            ["mustBe", "shouldBe", "shouldEqual", "contain", "intercept[", "assertResult"]
+        )
 
     for line in lines:
         line_stripped = line.strip()
@@ -194,12 +201,15 @@ def filter_testing_code(code: str, node_id: str) -> str:
 
         if not scala_mode:
             if "void " in line_stripped and (
-                    "test" in line_stripped.lower() or "should" in line_stripped.lower()):
+                "test" in line_stripped.lower() or "should" in line_stripped.lower()
+            ):
                 testing_lines.append(line_stripped)
         else:
             if line_stripped.startswith(("test(", "it should", "it must", "describe(")):
                 testing_lines.append(line_stripped)
-            elif "def " in line_stripped and ("test" in line_stripped.lower() or "should" in line_stripped.lower()):
+            elif "def " in line_stripped and (
+                "test" in line_stripped.lower() or "should" in line_stripped.lower()
+            ):
                 testing_lines.append(line_stripped)
 
     return "\n".join(testing_lines[:MAX_TESTING_LINES])
@@ -233,17 +243,25 @@ def filter_implementation_code(code: str, node_id: str) -> str:
         if not scala_mode:
             if line_stripped.startswith(("public ", "private ", "protected ")):
                 lower_line = line_stripped.lower()
-                if " get" in lower_line and "()" in line_stripped and len(line_stripped) < MAX_GETTER_LINE_LENGTH:
+                if (
+                    " get" in lower_line
+                    and "()" in line_stripped
+                    and len(line_stripped) < MAX_GETTER_LINE_LENGTH
+                ):
                     continue
                 if " set" in lower_line and len(line_stripped) < MAX_SETTER_LINE_LENGTH:
                     continue
             if line_stripped.startswith("return this.") and line_stripped.endswith(";"):
                 if len(line_stripped) < MAX_RETURN_THIS_LENGTH:
                     continue
-            if line_stripped.startswith("this.") and "=" in line_stripped and len(line_stripped) < MAX_THIS_ASSIGNMENT_LENGTH:
+            if (
+                line_stripped.startswith("this.")
+                and "=" in line_stripped
+                and len(line_stripped) < MAX_THIS_ASSIGNMENT_LENGTH
+            ):
                 continue
         else:
-            if re.match(r'^(override\s+)?(val|var)\s+\w+\s*:\s*\w+\s*=\s*\w+$', line_stripped):
+            if re.match(r"^(override\s+)?(val|var)\s+\w+\s*:\s*\w+\s*=\s*\w+$", line_stripped):
                 if len(line_stripped) < MAX_SCALA_FIELD_LENGTH:
                     continue
 
