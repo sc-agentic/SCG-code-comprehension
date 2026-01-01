@@ -38,9 +38,9 @@ def run_scg_cli(project_path: Path, output_folder: Path):
     project_parent = project_path.parent
     project_name = project_path.name
 
-    # gen_cmd = ["scg-cli", "generate", str(project_path)]
-    # logger.info(f"Running: {' '.join(gen_cmd)}")
-    # subprocess.run(gen_cmd, check=True, cwd=project_path, shell=True)
+    gen_cmd = ["scg-cli", "generate", str(project_path)]
+    logger.info(f"Running: {' '.join(gen_cmd)}")
+    subprocess.run(gen_cmd, check=True, cwd=project_path, shell=True)
 
     scg_cmd = ["scg-cli", "export", "-g", "SCG", "-o", "gdf", str(project_path)]
     logger.info(f"Running: {' '.join(scg_cmd)}")
