@@ -313,7 +313,7 @@ Question is about architecture, logic flow, general system behavior. No specific
   "keywords": [
     "List of keywords that names of code entities can include"
   ],
-  "top_nodes": 5-8,
+  "top_k": 5-8,
   "max_neighbors": 2-5
 }
 ```
@@ -324,7 +324,7 @@ Question is about architecture, logic flow, general system behavior. No specific
     - possible values: **CLASS**, **METHOD**, **INTERFACE**, **ENUM**, **TYPE_PARAMETER**, **OBJECT**, **TYPE**
 - `keywords` - based on question choose 10 keywords that should be included in nodes names in Java or Scala
     - example: Question: "How is logging implemented" --> some keywords: ["login", "controller", "auth", "authenticate"]
-- `top_nodes` — how many main nodes to select for analysis:
+- `top_k` — how many main nodes to select for analysis:
     - Simple question: 5-6
     - Complex question: 7-8
 - `max_neighbors` — how many neighbors to fetch for every main node
@@ -339,7 +339,7 @@ Simple question
 ```json
 {
   "question": "How does login work?",
-  "top_nodes": 5,
+  "top_k": 5,
   "max_neighbors": 3,
   "kinds": [
     "CLASS",
@@ -360,7 +360,7 @@ Complex Question
 ```json
 {
   "question": "Describe the entire authentication system architecture",
-  "top_nodes": 8,
+  "top_k": 8,
   "max_neighbors": 5,
   "kinds": [
     "CLASS",

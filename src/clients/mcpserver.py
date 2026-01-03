@@ -288,7 +288,7 @@ async def ask_top_nodes(
 
 @mcp.tool()
 async def ask_general_question(
-    question: str, kinds: List[str], keywords: List[str], top_nodes: int, max_neighbors: int
+        question: str, kinds: List[str], keywords: List[str], top_k: int, max_neighbors: int
 ) -> str:
     """
      #REMINDER: IF YOU HAVE CONTEXT (CODE) OF NODE FROM ANOTHER QUERY
@@ -318,7 +318,7 @@ async def ask_general_question(
        "question": "exact user question",
        "kinds": ["List of kinds that can backend should search for"],
        "keywords": ["List of keywords that names of code entities can include"],
-       "top_nodes": 5-8,
+       "top_k": 5-8,
        "max_neighbors": 2-5
      }
      ```
@@ -332,7 +332,7 @@ async def ask_general_question(
          in nodes names in Java or Scala
        - example: Question: "How is logging implemented" --> some keywords:
          ["login", "controller", "auth", "authenticate"]
-     - `top_nodes` — how many main nodes to select for analysis:
+     - `top_k` — how many main nodes to select for analysis:
          - Simple question: 5-6
          - Complex question: 7-8
      - `max_neighbors` — how many neighbors to fetch for every main node
@@ -356,7 +356,7 @@ async def ask_general_question(
     """
     logger.info("MCP general_question question: {}".format(question))
     params = {
-        "top_nodes": top_nodes,
+        "top_k": top_k,
         "kinds": kinds,
         "keywords": keywords,
         "max_neighbors": max_neighbors,

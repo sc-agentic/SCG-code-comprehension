@@ -182,7 +182,7 @@ async def get_general_nodes_context(
     """
     top_k = params.get("top_k", 5)
     max_neighbors = params.get("max_neighbors", 3)
-    logger.info(f"TOP K: {top_k}, Max neighbors: {max_neighbors}")
+    logger.info(f"TOP NODES: {top_k}, Max neighbors: {max_neighbors}")
 
     start_time = time.time()
     logger.debug("Using LLM-based general_question filtering")
@@ -288,7 +288,7 @@ async def get_general_nodes_context(
         confidence,
         top_nodes_length,
         question=question,
-        target_method=None,
+        target=None,
     )
 
     end_time = time.time()

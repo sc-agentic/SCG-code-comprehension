@@ -74,7 +74,14 @@ def filter_definition_code(code: str, node_id: str, kind: str) -> str:
             continue
         if scala_mode:
             if re.search(r"\bdef\s+[\w<\[]+", cleaned_line) or cleaned_line.startswith("def this("):
-                signature = cleaned_line.split("=")[0].strip()
+                signature = cleaned_line
+                if "=" in signature:
+                    last_par_index = signature.rfind(")")
+                    last_eq_index = signature.rfind("=")
+
+                    if last_eq_index > last_par_index:
+                        signature = signature[:last_eq_index].strip()
+
                 if not signature.endswith(";"):
                     signature += ";"
                 definition_lines.append(signature)

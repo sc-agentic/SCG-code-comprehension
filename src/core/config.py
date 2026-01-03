@@ -21,7 +21,7 @@ NODE_CONTEXT_HISTORY = os.path.join(PROJECT_ROOT, "data", "embeddings", "node_co
 CODEBERT_MODEL_NAME = "microsoft/codebert-base"
 METRICS = "metrics_log_spark.jsonl"
 JUNIE_URL = "http://127.0.0.1:8000/ask_junie"
-COMBINED_MAX = 997160
+COMBINED_MAX = 4256
 
 embedding_model = "paraphrase-multilingual-MiniLM-L12-v2"
 
