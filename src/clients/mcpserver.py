@@ -2,17 +2,29 @@ import sys
 from pathlib import Path
 from typing import List
 
-import httpx
 from loguru import logger
-from mcp.server.fastmcp import FastMCP
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from src.core.config import HTTP_TIMEOUT, SERVER_URL
+project_root = Path(__file__).resolve().parent.parent.parent
+logger.remove()
+log_file = project_root / "server_debug.log"
+logger.add(log_file, level="DEBUG")
+
+try:
+    from mcp.server.fastmcp import FastMCP
+    from app.main import retrieve_context
+    from graph.general_query import get_general_nodes_context
+    from graph.related_entities import get_related_entities
+    from graph.specific_nodes import get_specific_nodes_context
+    from graph.top_nodes import get_top_nodes_context
+except ImportError as e:
+    logger.error(f"Failed to import FastMCP module: {e}")
+    sys.exit(1)
 
 mcp = FastMCP("scg-context")
 
 
-async def call_fastapi(endpoint: str, question: str, params) -> str:
+async def call_backend(function, question: str, params) -> str:
     """
     Sends a question to the Junie RAG API and returns its contextual response.
 
@@ -21,23 +33,19 @@ async def call_fastapi(endpoint: str, question: str, params) -> str:
     text if the request fails.
 
     Args:
-        endpoint:
         question (str): The user question to send to the Junie backend.
+        function: Function to retrieve context from.
+        params (dict): Dict of parameters for function to retrieve context.
 
     Returns:
         str: The retrieved context string or an error message if the call fails.
     """
     logger.info("GOT QUESTION: {}", question)
     try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            response = await client.post(
-                f"{SERVER_URL}/{endpoint}",
-                json={"question": question, "params": params},
-            )
-            response.raise_for_status()
-            data = response.json()
-            prompt = data.get("prompt", "No context found")
-            return prompt
+        data = await retrieve_context(question, function, params)
+        logger.debug(f"Received data: {data}")
+        prompt = data.get("prompt", "No context found")
+        return prompt
     except Exception as e:
         return str(e)
 
@@ -109,10 +117,10 @@ async def ask_specific_nodes(
         - Question: "Describe User class" - `neighbor_types` not specified in
         question so go with ["ANY"]
         - Question: "Describe User class and 2 most important classes
-            related to it" - `neighbor_types` is specified and it is ["CLASS"]
-        - Question: "Where is class X used?" - `neighor_type` not specified - go with ["ANY"]
-        - Question: "Desctibe User class and most imporatant methods
-            and classes conntected to it" -> set `neighbor_type` to ["CLASS", "METHOD"]
+            related to it" - `neighbor_types` is specified, and it is ["CLASS"]
+        - Question: "Where is class X used?" - `neighbor_type` not specified - go with ["ANY"]
+        - Question: "Describe User class and most important methods
+            and classes connected to it" -> set `neighbor_type` to ["CLASS", "METHOD"]
         - Unsure what to choose - choose ["ANY"]
 
     ---
@@ -140,7 +148,7 @@ async def ask_specific_nodes(
         "neighbor_types": neighbor_types,
         "relation_types": relation_types,
     }
-    return await call_fastapi("ask_specific_nodes", question, params)
+    return await call_backend(get_specific_nodes_context, question, params)
 
 
 @mcp.tool()
@@ -157,7 +165,7 @@ async def ask_top_nodes(
     Query for RANKINGS, TOP-N elements, largest/smallest values in code.
 
     **When to use:**
-    Question is about ranking, top-N elements, largest/smalles values.
+    Question is about ranking, top-N elements, largest/smallest values.
     - Question contains: "top", "largest", "smallest", etc.
     - User asks about ordered list
 
@@ -197,7 +205,7 @@ async def ask_top_nodes(
 
     - `kinds:`
 
-        `kinds` specifiecs the list of **TYPES OF NODES** to fetch based on user question.
+        `kinds` specifies the list of **TYPES OF NODES** to fetch based on user question.
 
         Available options are: CLASS,METHOD,VARIABLE,CONSTRUCTOR,ANY.
 
@@ -212,7 +220,7 @@ async def ask_top_nodes(
 
 
     - `metric:`
-        `metric` specifiecs the metric user wants to filter nodes with.
+        `metric` specifies the metric user wants to filter nodes with.
 
         Available metrics are:
             - loc - (lines of code),
@@ -283,7 +291,7 @@ async def ask_top_nodes(
         "exact_metric_value": exact_metric_value,
         "order": order,
     }
-    return await call_fastapi("ask_top_nodes", question, params)
+    return await call_backend(get_top_nodes_context, question, params)
 
 
 @mcp.tool()
@@ -361,7 +369,7 @@ async def ask_general_question(
         "keywords": keywords,
         "max_neighbors": max_neighbors,
     }
-    return await call_fastapi("ask_general_question", question, params)
+    return await call_backend(get_general_nodes_context, question, params)
 
 
 @mcp.tool()
@@ -387,7 +395,7 @@ async def list_related_entities(
 
     **HOW BACKEND WORKS:**
     - Based on parameters that you select backend query nodes that match criteria.
-        It return list of `node_id` - `kind` - `uri` - `type or relation to node in question`
+        It returns list of `node_id` - `kind` - `uri` - `type or relation to node in question`
 
 
     **Examples:**
@@ -465,11 +473,11 @@ async def list_related_entities(
         "neighbor_types": neighbor_types,
         "relation_types": relation_types,
     }
-    return await call_fastapi("list_related_entities", question, params)
+    return await call_backend(get_related_entities, question, params)
 
 
 if __name__ == "__main__":
     try:
         mcp.run()
-    except Exception:
+    except Exception as e:
         logger.exception("MCP server failed")

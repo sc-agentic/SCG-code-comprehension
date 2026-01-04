@@ -11,12 +11,11 @@ System is an MCP Server that can be used with tool chosen by the user. It suppor
 
 ### Branch `main`
 
-    For general use version listed on branch `main`.
+    For general use version listed on branch `main`. It logs errors and events to `server_debug.log` file.
 
 ### Branch `fast-api`
 
-    For testing and further developing application use version listed on branch `fast-api`. It contains already present logs 
-    that help with monitoring current status of working system.
+    For testing and further developing application use version listed on branch `fast-api`.
     To run it use: 'uvicorn src.app.main:app --reload'
 
 ## Methods of MCP Server

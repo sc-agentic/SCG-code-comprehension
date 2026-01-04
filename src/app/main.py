@@ -3,36 +3,20 @@ import logging
 import time
 
 import httpx
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from clients.chroma_client import get_collection
-from graph.general_query import get_general_nodes_context
-from graph.related_entities import get_related_entities
-from graph.specific_nodes import get_specific_nodes_context
-from graph.top_nodes import get_top_nodes_context
 from src.core.config import (
     CODEBERT_MODEL_NAME,
-    CORS_ORIGINS,
     HTTP_TIMEOUT,
     RAG_TIMEOUT,
 )
 from src.core.intent_analyzer import get_intent_analyzer
-from src.core.models import AskRequest
 from src.core.prompt import build_prompt
 from testing.token_counter import count_tokens
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 timeout: httpx.Timeout = httpx.Timeout(HTTP_TIMEOUT)
 client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
@@ -58,62 +42,6 @@ def warm_up_models() -> None:
         logger.info(f"RAG models loaded in {warmup_time:.2f}s")
     except Exception as e:
         logger.error(f"Model warmup failed: {e}")
-
-
-@app.post("/ask_specific_nodes")
-async def ask_specific_nodes(req: AskRequest):
-    """
-    Retrieve context for specific named entities.
-
-    Args:
-        req: Request with question and optional params
-
-    Returns:
-        Context from matched specific nodes
-    """
-    return await retrieve_context(req.question, get_specific_nodes_context, req.params)
-
-
-@app.post("/ask_top_nodes")
-async def ask_top_nodes(req: AskRequest):
-    """
-    Retrieve context from most important nodes in the graph.
-
-    Args:
-        req: Request with question and optional params
-
-    Returns:
-        Context from top-ranked nodes by importance
-    """
-    return await retrieve_context(req.question, get_top_nodes_context, req.params)
-
-
-@app.post("/ask_general_question")
-async def ask_general_question(req: AskRequest):
-    """
-    Retrieve general graph context.
-
-    Args:
-        req: Request with question and optional params
-
-    Returns:
-        Context from semantically similar nodes
-    """
-    return await retrieve_context(req.question, get_general_nodes_context, req.params)
-
-
-@app.post("/list_related_entities")
-async def list_related_entities(req: AskRequest):
-    """
-    Retrieve related entities from the knowledge graph.
-
-    Args:
-        req: Request with question and optional params
-
-    Returns:
-        Context with related entities and their relationships
-    """
-    return await retrieve_context(req.question, get_related_entities, req.params)
 
 
 async def retrieve_context(question: str, node_func, params: dict):
@@ -205,30 +133,3 @@ async def retrieve_context(question: str, node_func, params: dict):
     except Exception as e:
         return {"status": "error", "context": f"Error: {str(e)}", "matches": 0}
 
-
-@app.on_event("startup")
-async def startup_event():
-    """
-    Application startup event handler.
-
-    Initializes models, evaluator.
-    Keeps the selected model in memory and performs a warm-up request to
-    reduce first-call latency.
-
-    Logs the status of each initialization step and reports any failures.
-    """
-    logger.info("Starting RAG application...")
-    warm_up_models()
-    logger.info("RAG application startup completed")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """
-    Application shutdown event handler.
-
-    Closes the shared HTTP client and logs shutdown completion.
-    """
-    logger.info("Shutting down RAG application...")
-    await client.aclose()
-    logger.info("HTTP client closed")
