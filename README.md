@@ -1,4 +1,3 @@
-```markdown
 # A System Supporting Code Comprehension Based on Large Language Models and a Semantic Code Graph
 
 This system is a tool designed for professional programmers to better understand large, evolving projects, and for novice programmers to learn coding more easily based on existing projects. To provide wider context, it utilizes a Semantic Code Graph (SCG), specifically relying on the [scg-cli tool](https://github.com/VirtusLab/scg-cli) for generation.
