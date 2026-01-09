@@ -24,7 +24,7 @@ For quick access to a large project and to test the tool, download the project Z
 The archive contains:
 
 * A large project: [Apache Spark 3.3.0](https://github.com/apache/spark/releases/tag/v3.3.0)
-* A small testing project: [test_project](https://github.com/jciura/test_project)
+* A small Webinar Spring project: [Webinar-System](https://github.com/jciura/Webinar-System)
 
 **Setup:**
 
@@ -33,7 +33,7 @@ The archive contains:
 3. **Note:** If you encounter issues, copy the `chroma_storage` folder located there to the `[data/embeddings](/data/embeddings)` folder.
 4. To adapt the tool to the analyzed project, modify `COMBINED_MAX` in `[src/core/config.py](/src/core/config.py)`:
 * For **Apache Spark 3.3.0**, set it to: `1187856`
-* For **test_project**, set it to: `4256`
+* For **Webinar-System**, set it to: `4256`
 
 
 
